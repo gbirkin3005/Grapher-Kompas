@@ -1,0 +1,23 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>10.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <Version>1.1.0</Version>
+    <Product>Grapher</Product>
+    <NeutralLanguage>ru-RU</NeutralLanguage>
+    <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
+    <!-- Interop-сборки КОМПАС (берутся из SDK: SDK\Samples\CSharp.zip\Common, см. tools\get-kompas-interop.ps1) -->
+    <KompasInteropDir>$(MSBuildThisFileDirectory)lib\kompas\</KompasInteropDir>
+  </PropertyGroup>
+
+  <!--
+    Релизные сборки идут без отладочных файлов: иначе в каждую dll записывается полный путь
+    к её .pdb на машине сборки (вместе с именем пользователя).
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+</Project>

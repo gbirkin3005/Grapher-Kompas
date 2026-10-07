@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Grapher.App</RootNamespace>
+    <AssemblyName>Grapher</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\grapher.ico</ApplicationIcon>
+    <Description>Grapher: построение графиков по точкам в чертежах КОМПАС-3D.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Grapher.Core\Grapher.Core.csproj" />
+    <ProjectReference Include="..\Grapher.Kompas\Grapher.Kompas.csproj" />
+    <ProjectReference Include="..\Grapher.UI\Grapher.UI.csproj" />
+  </ItemGroup>
+
+</Project>

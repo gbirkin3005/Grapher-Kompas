@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Grapher.KompasLibrary</RootNamespace>
+    <AssemblyName>GrapherKompas.Library</AssemblyName>
+    <!--
+      Версия сборки записана в реестр при регистрации COM-класса, поэтому она не меняется от выпуска к выпуску:
+      иначе после каждого обновления библиотеку пришлось бы регистрировать заново.
+      Имя файла и ProgID (GrapherKompas.Library) по той же причине остаются прежними.
+    -->
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Description>Grapher: приложение-библиотека КОМПАС-3D, пункт «Grapher» в меню «Приложения».</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Grapher.Core\Grapher.Core.csproj" />
+    <ProjectReference Include="..\Grapher.Kompas\Grapher.Kompas.csproj" />
+    <ProjectReference Include="..\Grapher.UI\Grapher.UI.csproj" />
+  </ItemGroup>
+
+</Project>

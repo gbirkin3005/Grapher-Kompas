@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>Grapher.Kompas</RootNamespace>
+    <AssemblyName>Grapher.Kompas</AssemblyName>
+    <Description>Рендерер КОМПАС-3D: превращает примитивы графика в объекты чертежа через COM API.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Grapher.Core\Grapher.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    Interop-сборки из SDK КОМПАС. Типы встраиваются в сборку (EmbedInteropTypes),
+    поэтому сами interop-dll рядом с программой не нужны.
+  -->
+  <ItemGroup>
+    <!-- Нужна для встроенных interop-типов: методы COM, возвращающие VARIANT, компилятор видит как dynamic. -->
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="KompasAPI7">
+      <HintPath>$(KompasInteropDir)KompasAPI7.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Kompas6API5">
+      <HintPath>$(KompasInteropDir)Kompas6API5.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Kompas6Constants">
+      <HintPath>$(KompasInteropDir)Kompas6Constants.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

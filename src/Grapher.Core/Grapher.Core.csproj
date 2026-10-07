@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>Grapher.Core</RootNamespace>
+    <AssemblyName>Grapher.Core</AssemblyName>
+    <Description>Ядро построения графиков: данные, масштаб, засечки, обрезка, интерполяция. Не зависит от КОМПАС.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ExcelDataReader" Version="3.7.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>

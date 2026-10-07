@@ -1,0 +1,22 @@
+# Результаты сборки
+bin/
+obj/
+dist/
+TestResults/
+
+# Interop-сборки из SDK КОМПАС: принадлежат АСКОН и в репозитории не хранятся.
+# Их копирует из установленного КОМПАС скрипт tools\get-kompas-interop.ps1 (build.cmd запускает его сам).
+lib/kompas/*.dll
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Временные файлы КОМПАС
+*.bak
+*.cd~
+*.fr~
+
+# Локальные настройки Claude Code
+.claude/

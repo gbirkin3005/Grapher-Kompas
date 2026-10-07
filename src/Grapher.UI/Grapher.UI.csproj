@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Grapher.UI</RootNamespace>
+    <AssemblyName>Grapher.UI</AssemblyName>
+    <Description>Окна приложения и предпросмотр графика (GDI+). Общий код для exe и для библиотеки КОМПАС.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Иконка окон: одна и та же для приложения и для библиотеки КОМПАС. -->
+    <EmbeddedResource Include="..\..\assets\grapher.ico" LogicalName="Grapher.UI.grapher.ico" Link="grapher.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Grapher.Core\Grapher.Core.csproj" />
+    <ProjectReference Include="..\Grapher.Kompas\Grapher.Kompas.csproj" />
+  </ItemGroup>
+
+</Project>
