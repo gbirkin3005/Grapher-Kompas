@@ -76,6 +76,12 @@ public static class ProjectSerializer
         return copy;
     }
 
+    private static void NormalizeAxis(AxisSettings axis)
+    {
+        axis.Title ??= "";
+        axis.Unit ??= "";
+    }
+
     /// <summary>Заполняет пропущенные в файле разделы значениями по умолчанию.</summary>
     public static void Normalize(GraphProject project)
     {
@@ -87,14 +93,27 @@ public static class ProjectSerializer
         project.YAxis ??= new AxisSettings();
         project.Graph ??= new GraphSettings();
         project.Placement ??= new PlacementSettings();
-        project.XAxis.Title ??= "";
-        project.YAxis.Title ??= "";
+        project.Polar ??= new PolarSettings();
+        project.Ternary ??= new TernarySettings();
+        project.Ternary.TitleC ??= "";
+        project.Ternary.Unit ??= "";
+        project.ExtraAxes ??= new List<AxisSettings>();
+        for (int i = 0; i < project.ExtraAxes.Count; i++)
+        {
+            project.ExtraAxes[i] ??= new AxisSettings();
+        }
+        NormalizeAxis(project.XAxis);
+        NormalizeAxis(project.YAxis);
+        foreach (AxisSettings axis in project.ExtraAxes) NormalizeAxis(axis);
         if (string.IsNullOrWhiteSpace(project.Graph.FontName)) project.Graph.FontName = DrawingFonts.Default;
 
         for (int i = 0; i < project.Curves.Count; i++)
         {
             project.Curves[i] ??= new CurveSettings();
             project.Curves[i].Name ??= "Y" + (i + 1).ToString(CultureInfo.InvariantCulture);
+            project.Curves[i].LabelText ??= "";
+            // Кривая не может ссылаться на шкалу, которой нет.
+            if (project.Curves[i].Axis < 0 || project.Curves[i].Axis > project.ExtraAxes.Count) project.Curves[i].Axis = 0;
         }
 
         for (int i = 0; i < project.Data.Rows.Count; i++)

@@ -1,6 +1,7 @@
 ﻿<#
 .SYNOPSIS
-  Собирает релизный пакет Grapher: папку dist\release\Grapher-<версия> и архив Grapher-<версия>.zip.
+  Собирает релизный пакет Grapher: мастер установки Grapher-<версия>-setup.exe,
+  папку dist\release\Grapher-<версия> и архив Grapher-<версия>.zip.
 
 .DESCRIPTION
   В пакет попадают программа и библиотека КОМПАС (в одной папке, общие файлы не дублируются),
@@ -30,6 +31,9 @@ $releaseDir = Join-Path $root 'dist\release'
 $stage = Join-Path $releaseDir $name
 $libraryStage = Join-Path $releaseDir '_library'
 $zip = Join-Path $releaseDir "$name.zip"
+$setupExe = Join-Path $releaseDir "$name-setup.exe"
+$payload = Join-Path $releaseDir '_payload.zip'
+$setupBuild = Join-Path $releaseDir '_setup'
 
 function Invoke-Dotnet {
     & dotnet @args
@@ -74,7 +78,7 @@ if (-not $SkipTests) {
     Invoke-Dotnet test (Join-Path $root 'tests\Grapher.Core.Tests\Grapher.Core.Tests.csproj') -c Release --nologo
 }
 
-foreach ($folder in $stage, $libraryStage) {
+foreach ($folder in $stage, $libraryStage, $setupBuild) {
     if (Test-Path -LiteralPath $folder) { Remove-Item -LiteralPath $folder -Recurse -Force }
 }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -131,6 +135,31 @@ finally {
     $archive.Dispose()
 }
 
+Write-Host ''
+Write-Host '=== Мастер установки ==='
+# В мастер встраиваются файлы программы, примеры и документация — без командных файлов
+# прежнего установщика (install.cmd, uninstall.cmd, setup\*.ps1): их работу делает сам мастер.
+if (Test-Path -LiteralPath $payload) { Remove-Item -LiteralPath $payload -Force }
+$skip = @('install.cmd', 'uninstall.cmd')
+$archive = [IO.Compression.ZipFile]::Open($payload, [IO.Compression.ZipArchiveMode]::Create)
+try {
+    foreach ($file in $files) {
+        $relative = $file.FullName.Substring($stage.Length + 1)
+        if ($skip -contains $relative -or $relative.StartsWith('setup\')) { continue }
+        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $relative.Replace('\', '/'), [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+    }
+}
+finally {
+    $archive.Dispose()
+}
+Invoke-Dotnet build (Join-Path $root 'src\Grapher.Setup\Grapher.Setup.csproj') -c Release --nologo --no-incremental -o $setupBuild "-p:PayloadZip=$payload"
+Copy-Item -LiteralPath (Join-Path $setupBuild 'GrapherSetup.exe') -Destination $setupExe -Force
+Remove-Item -LiteralPath $setupBuild -Recurse -Force
+Remove-Item -LiteralPath $payload -Force
+
+Write-Host ''
+Write-Host ("Мастер: {0} ({1:N0} КБ)" -f $setupExe, ((Get-Item -LiteralPath $setupExe).Length / 1KB))
+Write-Host ("SHA256: {0}" -f (Get-Sha256 $setupExe))
 Write-Host ("Папка:  {0} ({1} файлов)" -f $stage, $files.Count)
 Write-Host ("Архив:  {0} ({1:N0} КБ)" -f $zip, ((Get-Item -LiteralPath $zip).Length / 1KB))
 Write-Host ("SHA256: {0}" -f (Get-Sha256 $zip))

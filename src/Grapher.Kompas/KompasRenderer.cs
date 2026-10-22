@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Grapher.Core.Geometry;
+using Grapher.Core.Model;
 using Grapher.Core.Scene;
 using Kompas6Constants;
 using KompasAPI7;
@@ -27,7 +28,8 @@ public sealed class RenderResult
 
 /// <summary>
 /// Рендерер КОМПАС: переносит абстрактные примитивы графика в текущий вид активного 2D-документа
-/// нативными объектами (отрезки, ломаные, кривые Безье, окружности, тексты) и объединяет их в макроэлемент.
+/// нативными объектами (отрезки, ломаные, кривые Безье, окружности, дуги, тексты, точки, линии-выноски)
+/// и объединяет их в макроэлемент.
 /// </summary>
 public static class KompasRenderer
 {
@@ -168,11 +170,44 @@ public static class KompasRenderer
                 return DrawBezier(target, bezier, styles.Resolve(bezier.Style, bezier.Color));
             case CirclePrimitive circle:
                 return DrawCircle(target, circle, styles.Resolve(circle.Style, circle.Color));
+            case ArcPrimitive arc:
+                return DrawArc(target, arc, styles.Resolve(arc.Style, arc.Color));
             case TextPrimitive text:
-                return DrawText(target, text);
+                return TextWriter.Draw(target, text);
+            case PointPrimitive point:
+                return DrawPoint(target, point);
+            case LeaderArrowPrimitive arrow:
+                return DrawLeaderArrow(target, arrow);
             default:
                 return 0;
         }
+    }
+
+    private static int DrawPoint(IDrawingContainer target, PointPrimitive point)
+    {
+        IPoint p = target.Points.Add();
+        p.X = point.Position.X;
+        p.Y = point.Position.Y;
+        p.Style = point.Style;
+        return p.Update() ? 1 : -1;
+    }
+
+    /// <summary>
+    /// Стрелка — линия-выноска без полки и текста: начало выноски в хвосте, единственная ветвь — в острие,
+    /// на конце ветви стрелка (так стрелку строят командой «Линия-выноска» в КОМПАС).
+    /// </summary>
+    private static int DrawLeaderArrow(IDrawingContainer target, LeaderArrowPrimitive arrow)
+    {
+        if (!(target is ISymbols2DContainer symbols)) return -1;
+
+        IBaseLeader leader = symbols.Leaders.Add(DrawingObjectTypeEnum.ksDrLeader);
+        var branches = (IBranchs)leader;
+        branches.X0 = arrow.Tail.X;
+        branches.Y0 = arrow.Tail.Y;
+        branches.AddBranchByPoint(0, arrow.Tip.X, arrow.Tip.Y);
+        leader.ArrowType = ksArrowEnum.ksLeaderArrow;
+        if (leader is ILeader simple) simple.ShelfDirection = ksShelfDirectionEnum.ksLSNone;
+        return leader.Update() ? 1 : -1;
     }
 
     private static int DrawLine(IDrawingContainer target, LinePrimitive line, int style)
@@ -249,51 +284,39 @@ public static class KompasRenderer
         c.Yc = circle.Center.Y;
         c.Radius = circle.Radius;
         c.Style = style;
-        return c.Update() ? 1 : -1;
+        if (!c.Update()) return -1;
+        if (!circle.Filled) return 1;
+
+        // Маркер «точка»: сплошная заливка круга цветом линии.
+        var colouring = target.Colourings.Add();
+        if (colouring is IBoundariesObject boundaries && boundaries.AddBoundaries(c, false))
+        {
+            colouring.ColouringType = ksColouringTypeEnum.ksColouringSolid;
+            colouring.Color1 = circle.Color.HasValue ? ColorValue.ToBgr(circle.Color.Value) : FillColor;
+            if (colouring.Update()) return 2;
+        }
+        return 1;
     }
 
-    private static int DrawText(IDrawingContainer target, TextPrimitive primitive)
+    private static int DrawArc(IDrawingContainer target, ArcPrimitive arc, int style)
     {
-        if (string.IsNullOrEmpty(primitive.Text) || !(primitive.HeightMm > 0)) return 0;
+        if (!(arc.Radius > 0) || !(arc.SweepDeg > 0)) return 0;
 
-        // Точка привязки текста КОМПАС — на базовой линии; Allocation задаёт, какой конец строки в ней находится.
-        IDrawingText drawingText = target.DrawingTexts.Add();
-        drawingText.X = primitive.Anchor.X;
-        drawingText.Y = primitive.Anchor.Y;
-        drawingText.Angle = primitive.AngleDeg;
-        drawingText.Allocation = ToAllocation(primitive.Align);
-
-        var text = (IText)drawingText;
-        text.Str = primitive.Text;
-
-        // Шрифт и высота задаются для каждого фрагмента строки.
-        for (int i = 0; i < text.Count; i++)
-        {
-            ITextLine line = text.get_TextLine(i);
-            for (int j = 0; j < line.Count; j++)
-            {
-                ITextItem item = line.get_TextItem(j);
-                var font = (ITextFont)item;
-                if (!string.IsNullOrWhiteSpace(primitive.FontName)) font.FontName = primitive.FontName;
-                font.Height = primitive.HeightMm;
-                font.Italic = primitive.Italic;
-                item.Update();
-            }
-        }
-
-        return drawingText.Update() ? 1 : -1;
+        IArc a = target.Arcs.Add();
+        a.Xc = arc.Center.X;
+        a.Yc = arc.Center.Y;
+        a.Radius = arc.Radius;
+        a.Angle1 = NormalizeAngle(arc.StartDeg);
+        a.Angle2 = NormalizeAngle(arc.StartDeg + arc.SweepDeg);
+        // Direction = false — дуга идёт против часовой стрелки от первого угла ко второму (проверено на v25).
+        a.Direction = false;
+        a.Style = style;
+        return a.Update() ? 1 : -1;
     }
 
-    private static ksAllocationEnum ToAllocation(TextAlign align)
+    internal static double NormalizeAngle(double degrees)
     {
-        switch (align)
-        {
-            case TextAlign.Center:
-                return ksAllocationEnum.ksAlCentre;
-            case TextAlign.Right:
-                return ksAllocationEnum.ksAlRight;
-            default:
-                return ksAllocationEnum.ksAlLeft;
-        }
+        double angle = degrees % 360;
+        return angle < 0 ? angle + 360 : angle;
     }
 }

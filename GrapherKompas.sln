@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Grapher.Core.Tests", "tests
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Grapher.KompasLibrary", "src\Grapher.KompasLibrary\Grapher.KompasLibrary.csproj", "{AE9F8430-9694-4FB3-8DB5-BA37E0B0E2BA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Grapher.Setup", "src\Grapher.Setup\Grapher.Setup.csproj", "{73C15F36-6499-41C5-BA16-F09B1C815B45}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -101,6 +103,18 @@ Global
 		{AE9F8430-9694-4FB3-8DB5-BA37E0B0E2BA}.Release|x64.Build.0 = Release|Any CPU
 		{AE9F8430-9694-4FB3-8DB5-BA37E0B0E2BA}.Release|x86.ActiveCfg = Release|Any CPU
 		{AE9F8430-9694-4FB3-8DB5-BA37E0B0E2BA}.Release|x86.Build.0 = Release|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Debug|x64.Build.0 = Debug|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Debug|x86.Build.0 = Debug|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Release|Any CPU.Build.0 = Release|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Release|x64.ActiveCfg = Release|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Release|x64.Build.0 = Release|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Release|x86.ActiveCfg = Release|Any CPU
+		{73C15F36-6499-41C5-BA16-F09B1C815B45}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -112,5 +126,6 @@ Global
 		{34445CFB-4D43-47FA-8F3D-8609D839820B} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{C74D01D3-12B4-4DE8-A065-AB8ADEBC3C5E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{AE9F8430-9694-4FB3-8DB5-BA37E0B0E2BA} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{73C15F36-6499-41C5-BA16-F09B1C815B45} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

@@ -170,7 +170,8 @@ public class SampleImportTests
         BuildResult result = GraphBuilder.Build(project);
         Assert.False(result.HasErrors, string.Join("; ", result.Issues.Select(i => i.Message)));
         BezierPrimitive curve = Assert.Single(result.Scene.Primitives.OfType<BezierPrimitive>());
-        Assert.Equal(22, result.Scene.Primitives.OfType<TextPrimitive>().Count(t => t.Role == PrimitiveRole.TickLabel));
+        // 10 чисел по X, 10 по Y и общий ноль у точки пересечения шкал.
+        Assert.Equal(21, result.Scene.Primitives.OfType<TextPrimitive>().Count(t => t.Role == PrimitiveRole.TickLabel));
         Assert.Equal(18, result.Scene.Primitives.Count(p => p.Role == PrimitiveRole.Grid));
         return curve.Nodes.SelectMany(n => new[] { n.In, n.Point, n.Out }).ToList();
     }

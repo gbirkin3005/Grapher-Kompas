@@ -230,7 +230,8 @@ public class NumberFormatterTests
     [InlineData(10, 0, true, "10")]
     [InlineData(2.5, 0, true, "3")]
     [InlineData(0.125, 2, false, "0.13")]
-    [InlineData(-0.0001, 2, false, "0.00")]       // без «-0,00»
+    [InlineData(-0.0001, 2, false, "0")]          // ноль — без знака и без дробной части
+    [InlineData(0, 3, true, "0")]
     [InlineData(-12.5, 2, true, "-12,50")]
     [InlineData(1000000, 0, true, "1000000")]
     public void Formats_tick_labels(double value, int decimals, bool comma, string expected)

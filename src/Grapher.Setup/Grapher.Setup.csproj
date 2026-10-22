@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Мастер установки Grapher. Файлы программы встраиваются в него архивом payload.zip,
+    который собирает tools\make-release.ps1 и передаёт свойством PayloadZip.
+    Без архива проект тоже собирается (для разработки), но установить из такого файла ничего нельзя.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Grapher.Setup</RootNamespace>
+    <AssemblyName>GrapherSetup</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\grapher.ico</ApplicationIcon>
+    <Description>Мастер установки Grapher.</Description>
+    <!-- 64-разрядный процесс: КОМПАС 64-разрядный и читает 64-разрядную ветку реестра. -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\assets\grapher.ico" LogicalName="grapher.ico" />
+    <EmbeddedResource Include="$(PayloadZip)" LogicalName="payload.zip" Condition="'$(PayloadZip)' != '' And Exists('$(PayloadZip)')" />
+  </ItemGroup>
+
+</Project>

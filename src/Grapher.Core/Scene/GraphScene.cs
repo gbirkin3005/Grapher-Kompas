@@ -17,7 +17,15 @@ public sealed class GraphScene
     /// <summary>Четыре угла поля графика после размещения (для поворота это не прямоугольник по осям).</summary>
     public Pt[] PlotCorners { get; set; }
 
+    /// <summary>
+    /// Точка вставки: левый нижний угол поля графика, полюс полярной диаграммы
+    /// или левая нижняя вершина треугольной. В локальных координатах это начало координат.
+    /// </summary>
+    public Pt InsertionPoint { get; set; }
+
     public void Add(Primitive primitive) => Primitives.Add(primitive);
+
+    public void AddRange(IEnumerable<Primitive> primitives) => Primitives.AddRange(primitives);
 
     /// <summary>
     /// Размещает сцену на листе: масштаб (для видов с масштабом, отличным от 1:1), поворот, перенос.
@@ -25,7 +33,7 @@ public sealed class GraphScene
     /// </summary>
     public GraphScene Transform(Transform2D transform)
     {
-        var scene = new GraphScene { PlotRect = PlotRect };
+        var scene = new GraphScene { PlotRect = PlotRect, InsertionPoint = transform.Apply(InsertionPoint) };
         scene.Primitives.Capacity = Primitives.Count;
         foreach (Primitive primitive in Primitives)
         {

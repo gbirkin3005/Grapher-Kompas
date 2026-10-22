@@ -11,6 +11,7 @@ using Grapher.Core.Import;
 using Grapher.Core.Model;
 using Grapher.Core.Numerics;
 using Grapher.Core.Parsing;
+using Grapher.Core.Scene;
 using Grapher.Core.Serialization;
 using Grapher.Kompas;
 using Grapher.UI.Controls;
@@ -101,12 +102,6 @@ public sealed partial class MainForm : Form
     /// <summary>Текст строки состояния (результат последнего действия).</summary>
     public string StatusText => _statusMessage.Text;
 
-    /// <summary>Открывает вкладку настроек с заданным номером.</summary>
-    public void SelectSettingsTab(int index)
-    {
-        if (index >= 0 && index < _tabs.TabCount) _tabs.SelectedIndex = index;
-    }
-
     // ------------------------------------------------------------------ жизненный цикл
 
     protected override void OnLoad(EventArgs e)
@@ -117,6 +112,8 @@ public sealed partial class MainForm : Form
         _grid.RowTemplate.Height = Font.Height + 6;
         _grid.RowHeadersWidth = TextRenderer.MeasureText("000000", Font).Width + 8;
         _grid.RebuildColumns();
+        ScaleSettingsLayout();
+        FitSettings(true);
         UpdatePreview();
         RefreshKompasStatus();
         _kompasTimer.Start();
@@ -188,6 +185,11 @@ public sealed partial class MainForm : Form
         project.YAxis.AutoLimits = true;
         project.XAxis.Title = "";
         project.YAxis.Title = "";
+        project.XAxis.Unit = "";
+        project.YAxis.Unit = "";
+        project.XAxis.Numbers = NumberStyle.Decimal;
+        project.ExtraAxes.Clear();
+        project.Ternary.TitleC = "";
         project.Data.XName = "X";
         project.Curves.Add(new CurveSettings { Name = "Y" });
         return project;
@@ -200,6 +202,7 @@ public sealed partial class MainForm : Form
         _filePath = filePath;
         _dirty = false;
         _selectedCurve = 0;
+        _axisIndex = -1;
         ShowProject();
         UpdatePreview();
     }
@@ -240,6 +243,20 @@ public sealed partial class MainForm : Form
         ReadUi();
         SetProject(CreateEmptyProject(_project), null);
         SetStatus("Создан новый график. Вставьте данные из буфера обмена (Ctrl+V) или импортируйте файл.");
+    }
+
+    /// <summary>Открывает один из встроенных примеров как новый график.</summary>
+    private void LoadSample(string name)
+    {
+        if (!ConfirmDiscardChanges()) return;
+        GraphProject sample = SampleData.ByName(name);
+        if (sample == null) return;
+
+        // Способ указания точки вставки остаётся таким, какой выбран в окне.
+        sample.Placement = _project.Placement.Clone();
+        sample.Placement.AngleDeg = 0;
+        SetProject(sample, null);
+        SetStatus("Открыт пример. Замените данные в таблице своими; настройки оформления — на вкладках.");
     }
 
     private void OpenProject()
@@ -331,14 +348,7 @@ public sealed partial class MainForm : Form
 
     private void ShowAbout()
     {
-        Version version = typeof(MainForm).Assembly.GetName().Version;
-        MessageBox.Show(this,
-            "Grapher " + version.ToString(3) + "\n\n" +
-            "Построение графиков по точкам в чертежах и фрагментах КОМПАС-3D.\n" +
-            "Данные вводятся в таблицу, вставляются из буфера обмена (Mathcad, Excel)\n" +
-            "или импортируются из файлов Excel и CSV.\n\n" +
-            "График рисуется объектами КОМПАС и объединяется в макроэлемент.",
-            "О программе", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        using (var dialog = new AboutDialog()) dialog.ShowDialog(this);
     }
 
     private void ImportFile()
@@ -360,494 +370,6 @@ public sealed partial class MainForm : Form
         _grid.LoadTable(table);
         SetStatus(string.Format(CultureInfo.CurrentCulture, "Импортировано из «{0}»: строк — {1}, кривых — {2}.",
             Path.GetFileName(path), table.Rows.Count, table.YNames.Count));
-    }
-
-    // ------------------------------------------------------------------ события элементов управления
-
-    private void WireEvents()
-    {
-        _buildButton.Click += (s, e) => BuildInKompas();
-
-        _grid.DataChanged += (s, e) =>
-        {
-            MarkDirty();
-            SchedulePreview();
-        };
-        _grid.StructureChanged += (s, e) => OnCurvesChanged();
-        _grid.CurveColumnSelected += index => SelectCurve(index);
-        _issuesList.DoubleClick += (s, e) =>
-        {
-            if (_issuesList.SelectedItem is IssueItem item && item.Issue.Row > 0)
-            {
-                _grid.GoToCell(item.Issue.Row, item.Issue.Column);
-            }
-        };
-
-        // Общие настройки: любое изменение переносится в проект и обновляет предпросмотр.
-        EventHandler changed = (s, e) => OnSettingChanged();
-        foreach (CheckBox box in new[] { _xAuto, _yAuto, _gridOn, _axesOn, _arrowsOn, _frameOn, _labelsOn, _italic, _legendOn, _decimateOn })
-        {
-            box.CheckedChanged += changed;
-        }
-        foreach (NumberBox box in new[] { _xMin, _xMax, _yMin, _yMax, _angle, _stepX, _stepY, _axisExtension, _arrowLength, _tickLength,
-                     _labelHeight, _titleHeight, _placeX, _placeY, _decimateThreshold, _decimateTolerance })
-        {
-            box.ValueChanged += changed;
-        }
-        foreach (ComboBox box in new[] { _crossing, _titlePlacement, _decimalsX, _decimalsY, _decimalSeparator })
-        {
-            box.SelectedIndexChanged += changed;
-        }
-        _fontName.TextChanged += changed;
-        _titleX.TextChanged += changed;
-        _titleY.TextChanged += changed;
-        _everyX.ValueChanged += changed;
-        _everyY.ValueChanged += changed;
-        _pickPoint.CheckedChanged += changed;
-        _useCoords.CheckedChanged += changed;
-        _gridMode.SelectedIndexChanged += (s, e) => OnGridModeChanged();
-
-        // Габарит и масштабный коэффициент связаны в обе стороны.
-        _width.ValueChanged += (s, e) => OnSizeEdited(SizeDriver.Width, _width);
-        _height.ValueChanged += (s, e) => OnSizeEdited(SizeDriver.Height, _height);
-        _scaleX.ValueChanged += (s, e) => OnSizeEdited(SizeDriver.ScaleX, _scaleX);
-        _scaleY.ValueChanged += (s, e) => OnSizeEdited(SizeDriver.ScaleY, _scaleY);
-        _equalScale.CheckedChanged += changed;
-
-        // Блок «Тип и цвет линии графика».
-        _curveBox.SelectedIndexChanged += (s, e) =>
-        {
-            if (!_loading) SelectCurve(_curveBox.SelectedIndex);
-        };
-        _curveAdd.Click += (s, e) => AddCurve();
-        _curveRemove.Click += (s, e) => RemoveCurve();
-        EventHandler curveChanged = (s, e) => OnCurveSettingChanged();
-        _curveName.TextChanged += curveChanged;
-        _curveStyle.SelectedIndexChanged += curveChanged;
-        _curveMode.SelectedIndexChanged += curveChanged;
-        _curveMarker.SelectedIndexChanged += curveChanged;
-        _curveMarkerSize.ValueChanged += curveChanged;
-        _curveVisible.CheckedChanged += curveChanged;
-        _curveColor.Click += (s, e) => ChooseCurveColor();
-        _curveColorReset.Click += (s, e) => SetCurveColor(null);
-    }
-
-    private void OnSettingChanged()
-    {
-        if (_loading) return;
-        ReadUi();
-        UpdateEnabledState();
-        MarkDirty();
-        SchedulePreview();
-    }
-
-    /// <summary>Завершает редактирование ячейки таблицы, чтобы введённое значение попало в данные.</summary>
-    private void CommitEdits()
-    {
-        if (_grid.IsCurrentCellInEditMode) _grid.EndEdit();
-    }
-
-    // ------------------------------------------------------------------ проект → окно
-
-    private void WriteUi()
-    {
-        _loading = true;
-        try
-        {
-            GraphSettings g = _project.Graph;
-
-            _xAuto.Checked = _project.XAxis.AutoLimits;
-            _yAuto.Checked = _project.YAxis.AutoLimits;
-            _xMin.SetValue(_project.XAxis.Min);
-            _xMax.SetValue(_project.XAxis.Max);
-            _yMin.SetValue(_project.YAxis.Min);
-            _yMax.SetValue(_project.YAxis.Max);
-            _angle.SetValue(_project.Placement.AngleDeg);
-
-            _gridOn.Checked = g.ShowGrid;
-            _width.SetValue(g.WidthMm);
-            _height.SetValue(g.HeightMm);
-            _equalScale.Checked = g.EqualScale;
-            _gridMode.SelectedIndex = (int)g.GridMode;
-            _stepX.SetValue(_project.XAxis.GridStep);
-            _stepY.SetValue(_project.YAxis.GridStep);
-            _everyX.Value = Math.Max(1, Math.Min(100, _project.XAxis.LabelEvery));
-            _everyY.Value = Math.Max(1, Math.Min(100, _project.YAxis.LabelEvery));
-
-            _axesOn.Checked = g.ShowAxes;
-            _arrowsOn.Checked = g.ShowArrows;
-            _frameOn.Checked = g.ShowFrame;
-            _axisExtension.SetValue(g.AxisExtensionMm);
-            _arrowLength.SetValue(g.ArrowLengthMm);
-            _tickLength.SetValue(g.TickLengthMm);
-            _crossing.SelectedIndex = (int)g.Crossing;
-            _titleX.Text = _project.XAxis.Title;
-            _titleY.Text = _project.YAxis.Title;
-            _titlePlacement.SelectedIndex = (int)g.TitlePlacement;
-            _labelsOn.Checked = g.ShowTickLabels;
-            _decimalsX.SelectedIndex = Math.Max(0, Math.Min(7, _project.XAxis.Decimals + 1));
-            _decimalsY.SelectedIndex = Math.Max(0, Math.Min(7, _project.YAxis.Decimals + 1));
-            _decimalSeparator.SelectedIndex = g.DecimalComma ? 0 : 1;
-            _fontName.Text = g.FontName;
-            _italic.Checked = g.Italic;
-            _labelHeight.SetValue(g.LabelHeightMm);
-            _titleHeight.SetValue(g.TitleHeightMm);
-
-            _pickPoint.Checked = _project.Placement.PickPoint;
-            _useCoords.Checked = !_project.Placement.PickPoint;
-            _placeX.SetValue(_project.Placement.X);
-            _placeY.SetValue(_project.Placement.Y);
-            _legendOn.Checked = g.ShowLegend;
-            _decimateOn.Checked = g.Decimate;
-            _decimateThreshold.SetValue(g.DecimateThreshold);
-            _decimateTolerance.SetValue(g.DecimateToleranceMm);
-
-            FillCurveList();
-        }
-        finally
-        {
-            _loading = false;
-        }
-        ShowCurve();
-        UpdateEnabledState();
-    }
-
-    // ------------------------------------------------------------------ окно → проект
-
-    private void ReadUi()
-    {
-        GraphSettings g = _project.Graph;
-
-        _project.XAxis.AutoLimits = _xAuto.Checked;
-        _project.YAxis.AutoLimits = _yAuto.Checked;
-        if (!_xAuto.Checked)
-        {
-            _project.XAxis.Min = _xMin.Value;
-            _project.XAxis.Max = _xMax.Value;
-        }
-        if (!_yAuto.Checked)
-        {
-            _project.YAxis.Min = _yMin.Value;
-            _project.YAxis.Max = _yMax.Value;
-        }
-        _project.Placement.AngleDeg = _angle.Value;
-
-        g.ShowGrid = _gridOn.Checked;
-        g.EqualScale = _equalScale.Checked;
-        g.GridMode = (GridStepMode)Math.Max(0, _gridMode.SelectedIndex);
-        if (g.GridMode != GridStepMode.Auto)
-        {
-            _project.XAxis.GridStep = _stepX.Value;
-            _project.YAxis.GridStep = _stepY.Value;
-        }
-        _project.XAxis.LabelEvery = (int)_everyX.Value;
-        _project.YAxis.LabelEvery = (int)_everyY.Value;
-
-        g.ShowAxes = _axesOn.Checked;
-        g.ShowArrows = _arrowsOn.Checked;
-        g.ShowFrame = _frameOn.Checked;
-        g.AxisExtensionMm = _axisExtension.Value;
-        g.ArrowLengthMm = _arrowLength.Value;
-        g.TickLengthMm = _tickLength.Value;
-        g.Crossing = (AxesCrossing)Math.Max(0, _crossing.SelectedIndex);
-        _project.XAxis.Title = _titleX.Text;
-        _project.YAxis.Title = _titleY.Text;
-        g.TitlePlacement = (AxisTitlePlacement)Math.Max(0, _titlePlacement.SelectedIndex);
-        g.ShowTickLabels = _labelsOn.Checked;
-        _project.XAxis.Decimals = _decimalsX.SelectedIndex - 1;
-        _project.YAxis.Decimals = _decimalsY.SelectedIndex - 1;
-        g.DecimalComma = _decimalSeparator.SelectedIndex != 1;
-        if (!string.IsNullOrWhiteSpace(_fontName.Text)) g.FontName = _fontName.Text.Trim();
-        g.Italic = _italic.Checked;
-        g.LabelHeightMm = _labelHeight.Value;
-        g.TitleHeightMm = _titleHeight.Value;
-
-        _project.Placement.PickPoint = _pickPoint.Checked;
-        _project.Placement.X = _placeX.Value;
-        _project.Placement.Y = _placeY.Value;
-        g.ShowLegend = _legendOn.Checked;
-        g.Decimate = _decimateOn.Checked;
-        g.DecimateThreshold = (int)Math.Max(2, Math.Min(int.MaxValue, _decimateThreshold.Value));
-        g.DecimateToleranceMm = _decimateTolerance.Value;
-    }
-
-    private void UpdateEnabledState()
-    {
-        _xMin.Enabled = _xMax.Enabled = !_xAuto.Checked;
-        _yMin.Enabled = _yMax.Enabled = !_yAuto.Checked;
-
-        bool manualStep = _gridMode.SelectedIndex > 0;
-        _stepX.Enabled = _stepY.Enabled = manualStep;
-
-        _arrowsOn.Enabled = _axesOn.Checked;
-        _axisExtension.Enabled = _arrowLength.Enabled = _axesOn.Checked && _arrowsOn.Checked;
-        _decimalsX.Enabled = _decimalsY.Enabled = _decimalSeparator.Enabled = _labelsOn.Checked;
-        _placeX.Enabled = _placeY.Enabled = _useCoords.Checked;
-        _decimateThreshold.Enabled = _decimateTolerance.Enabled = _decimateOn.Checked;
-        _curveRemove.Enabled = _project.Curves.Count > 1;
-        _removeCurveMenuItem.Enabled = _project.Curves.Count > 1;
-        _curveMarkerSize.Enabled = _curveMarker.SelectedIndex > 0;
-        _curveColorReset.Enabled = _curveColor.Value.HasValue;
-    }
-
-    // ------------------------------------------------------------------ габариты и масштаб
-
-    private void OnSizeEdited(SizeDriver driver, NumberBox source)
-    {
-        if (_loading || _lastResult == null) return;
-
-        double rangeX = _lastResult.XMax - _lastResult.XMin, rangeY = _lastResult.YMax - _lastResult.YMin;
-        double width = _project.Graph.WidthMm, height = _project.Graph.HeightMm;
-        GraphSizeSolver.Solve(driver, source.Value, rangeX, rangeY, _equalScale.Checked, ref width, ref height);
-
-        _project.Graph.WidthMm = GraphSizeSolver.Clamp(width);
-        _project.Graph.HeightMm = GraphSizeSolver.Clamp(height);
-        if (source != _width) _width.SetValue(_project.Graph.WidthMm);
-        if (source != _height) _height.SetValue(_project.Graph.HeightMm);
-
-        MarkDirty();
-        SchedulePreview();
-    }
-
-    /// <summary>При смене способа задания шага пересчитывает текущий шаг в новые единицы, чтобы сетка не «прыгала».</summary>
-    private void OnGridModeChanged()
-    {
-        if (_loading) return;
-
-        var mode = (GridStepMode)Math.Max(0, _gridMode.SelectedIndex);
-        if (_lastResult?.TicksX != null && _lastResult.TicksY != null && mode != GridStepMode.Auto)
-        {
-            double stepX = _lastResult.TicksX.Step, stepY = _lastResult.TicksY.Step;
-            double rangeX = _lastResult.XMax - _lastResult.XMin, rangeY = _lastResult.YMax - _lastResult.YMin;
-            if (stepX > 0 && stepY > 0)
-            {
-                switch (mode)
-                {
-                    case GridStepMode.Units:
-                        _stepX.SetValue(stepX);
-                        _stepY.SetValue(stepY);
-                        break;
-                    case GridStepMode.Millimeters:
-                        _stepX.SetValue(Math.Round(stepX * _lastResult.ScaleX, 6));
-                        _stepY.SetValue(Math.Round(stepY * _lastResult.ScaleY, 6));
-                        break;
-                    case GridStepMode.Divisions:
-                        _stepX.SetValue(Math.Max(1, Math.Round(rangeX / stepX)));
-                        _stepY.SetValue(Math.Max(1, Math.Round(rangeY / stepY)));
-                        break;
-                }
-            }
-        }
-        OnSettingChanged();
-    }
-
-    // ------------------------------------------------------------------ кривые
-
-    private void FillCurveList()
-    {
-        _curveBox.Items.Clear();
-        for (int i = 0; i < _project.Curves.Count; i++)
-        {
-            _curveBox.Items.Add(CurveTitle(i));
-        }
-        if (_selectedCurve >= _project.Curves.Count) _selectedCurve = _project.Curves.Count - 1;
-        if (_selectedCurve < 0) _selectedCurve = 0;
-        if (_curveBox.Items.Count > 0) _curveBox.SelectedIndex = _selectedCurve;
-    }
-
-    private string CurveTitle(int index)
-    {
-        string name = _project.Curves[index].Name;
-        return (index + 1).ToString(CultureInfo.CurrentCulture) + ". " + (string.IsNullOrWhiteSpace(name) ? "(без названия)" : name);
-    }
-
-    private void SelectCurve(int index)
-    {
-        if (index < 0 || index >= _project.Curves.Count || index == _selectedCurve && _curveBox.SelectedIndex == index) return;
-        _selectedCurve = index;
-        ShowCurve();
-    }
-
-    /// <summary>Показывает настройки выбранной кривой в блоке «Тип и цвет линии графика».</summary>
-    private void ShowCurve()
-    {
-        if (_project.Curves.Count == 0) return;
-        if (_selectedCurve >= _project.Curves.Count) _selectedCurve = 0;
-
-        CurveSettings curve = _project.Curves[_selectedCurve];
-        _loading = true;
-        try
-        {
-            if (_curveBox.SelectedIndex != _selectedCurve && _selectedCurve < _curveBox.Items.Count)
-            {
-                _curveBox.SelectedIndex = _selectedCurve;
-            }
-            _curveName.Text = curve.Name;
-            _curveStyle.SelectedStyle = curve.LineStyle;
-            _curveMode.SelectedIndex = curve.Mode == CurveMode.Smooth ? 0 : 1;
-            _curveMarker.SelectedIndex = MarkerToIndex(curve.Marker);
-            _curveMarkerSize.SetValue(curve.MarkerSizeMm);
-            _curveVisible.Checked = curve.Visible;
-            ShowCurveColor(curve);
-        }
-        finally
-        {
-            _loading = false;
-        }
-        UpdateEnabledState();
-    }
-
-    // ------------------------------------------------------------------ цвет линии кривой
-
-    /// <summary>Пользовательские цвета диалога выбора цвета — общие на время работы программы.</summary>
-    private static int[] _customColors;
-
-    private static Color ToColor(int rgb) =>
-        Color.FromArgb(ColorValue.Red(rgb), ColorValue.Green(rgb), ColorValue.Blue(rgb));
-
-    private void ShowCurveColor(CurveSettings curve)
-    {
-        int? rgb = ColorValue.Parse(curve.Color);
-        Color? color = rgb.HasValue ? ToColor(rgb.Value) : (Color?)null;
-        _curveColor.Value = color;
-        _curveStyle.SampleColor = color;
-    }
-
-    private void ChooseCurveColor()
-    {
-        if (_selectedCurve < 0 || _selectedCurve >= _project.Curves.Count) return;
-
-        int? current = ColorValue.Parse(_project.Curves[_selectedCurve].Color);
-        using (var dialog = new ColorDialog { FullOpen = true, AnyColor = true })
-        {
-            // Если цвет ещё не задан, диалог открывается на синем цвете основной линии КОМПАС.
-            dialog.Color = current.HasValue ? ToColor(current.Value) : Color.FromArgb(0, 128, 255);
-            if (_customColors != null) dialog.CustomColors = _customColors;
-            if (dialog.ShowDialog(this) != DialogResult.OK) return;
-
-            _customColors = dialog.CustomColors;
-            SetCurveColor(ColorValue.Format(ColorValue.FromRgb(dialog.Color.R, dialog.Color.G, dialog.Color.B)));
-        }
-    }
-
-    /// <param name="color">Цвет «#RRGGBB» либо null — вернуть цвет стиля КОМПАС.</param>
-    private void SetCurveColor(string color)
-    {
-        if (_selectedCurve < 0 || _selectedCurve >= _project.Curves.Count) return;
-
-        CurveSettings curve = _project.Curves[_selectedCurve];
-        if (curve.Color == color) return;
-
-        curve.Color = color;
-        ShowCurveColor(curve);
-        UpdateEnabledState();
-        MarkDirty();
-        SchedulePreview();
-    }
-
-    private static readonly MarkerShape[] MarkerOrder =
-    {
-        MarkerShape.None, MarkerShape.Circle, MarkerShape.Square, MarkerShape.Triangle, MarkerShape.Diamond, MarkerShape.Cross
-    };
-
-    private static int MarkerToIndex(MarkerShape shape) => Math.Max(0, Array.IndexOf(MarkerOrder, shape));
-
-    private void OnCurveSettingChanged()
-    {
-        if (_loading || _selectedCurve < 0 || _selectedCurve >= _project.Curves.Count) return;
-
-        CurveSettings curve = _project.Curves[_selectedCurve];
-        bool renamed = curve.Name != _curveName.Text;
-        curve.Name = _curveName.Text;
-        curve.LineStyle = _curveStyle.SelectedStyle;
-        curve.Mode = _curveMode.SelectedIndex == 1 ? CurveMode.Polyline : CurveMode.Smooth;
-        curve.Marker = MarkerOrder[Math.Max(0, Math.Min(MarkerOrder.Length - 1, _curveMarker.SelectedIndex))];
-        curve.MarkerSizeMm = _curveMarkerSize.Value;
-        curve.Visible = _curveVisible.Checked;
-
-        if (renamed)
-        {
-            _loading = true;
-            _curveBox.Items[_selectedCurve] = CurveTitle(_selectedCurve);
-            _loading = false;
-            _grid.RefreshHeaders();
-        }
-
-        UpdateEnabledState();
-        MarkDirty();
-        SchedulePreview();
-    }
-
-    private void AddCurve()
-    {
-        CommitEdits();
-        _selectedCurve = _grid.AddCurve();
-        _loading = true;
-        FillCurveList();
-        _loading = false;
-        ShowCurve();
-        MarkDirty();
-        SchedulePreview();
-        SetStatus("Добавлен столбец «" + _project.Curves[_selectedCurve].Name + "». Введите или вставьте значения Y.");
-    }
-
-    private void RemoveCurve()
-    {
-        if (_project.Curves.Count <= 1) return;
-
-        string name = _project.Curves[_selectedCurve].Name;
-        DialogResult answer = MessageBox.Show(this, "Удалить кривую «" + name + "» вместе со столбцом данных?", AppTitle,
-            MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
-        if (answer != DialogResult.OK) return;
-
-        _grid.RemoveCurve(_selectedCurve);
-        _selectedCurve = Math.Min(_selectedCurve, _project.Curves.Count - 1);
-        _loading = true;
-        FillCurveList();
-        _loading = false;
-        ShowCurve();
-        MarkDirty();
-        SchedulePreview();
-    }
-
-    /// <summary>Набор кривых изменился после вставки или импорта.</summary>
-    private void OnCurvesChanged()
-    {
-        _loading = true;
-        FillCurveList();
-        _loading = false;
-        ShowCurve();
-        UseHeadersAsTitles();
-    }
-
-    /// <summary>
-    /// Если подписи осей ещё не заданы, а таблица пришла с заголовками, берём заголовки:
-    /// столбцы «x, мм» и «F, Н» из Mathcad или Excel сразу становятся подписями осей.
-    /// </summary>
-    private void UseHeadersAsTitles()
-    {
-        bool changed = false;
-        string xName = _project.Data.XName;
-        if (string.IsNullOrWhiteSpace(_project.XAxis.Title) && !string.IsNullOrWhiteSpace(xName) && xName != "X")
-        {
-            _project.XAxis.Title = xName;
-            changed = true;
-        }
-        if (string.IsNullOrWhiteSpace(_project.YAxis.Title) && _project.Curves.Count == 1)
-        {
-            string yName = _project.Curves[0].Name;
-            if (!string.IsNullOrWhiteSpace(yName) && yName != "Y" && yName != "Y1")
-            {
-                _project.YAxis.Title = yName;
-                changed = true;
-            }
-        }
-        if (!changed) return;
-
-        _loading = true;
-        _titleX.Text = _project.XAxis.Title;
-        _titleY.Text = _project.YAxis.Title;
-        _loading = false;
     }
 
     // ------------------------------------------------------------------ предпросмотр
@@ -880,80 +402,6 @@ public sealed partial class MainForm : Form
 
         ShowComputedValues(result);
         ShowIssues(result);
-    }
-
-    /// <summary>Показывает вычисленные величины: пределы в режиме «авто», размах, масштабные коэффициенты, шаг сетки.</summary>
-    private void ShowComputedValues(BuildResult result)
-    {
-        _loading = true;
-        try
-        {
-            if (_xAuto.Checked)
-            {
-                _xMin.SetValue(result.XMin);
-                _xMax.SetValue(result.XMax);
-            }
-            if (_yAuto.Checked)
-            {
-                _yMin.SetValue(result.YMin);
-                _yMax.SetValue(result.YMax);
-            }
-
-            _rangeX.Text = NumberFormatter.ForInput(result.XMax - result.XMin);
-            _rangeY.Text = NumberFormatter.ForInput(result.YMax - result.YMin);
-            _scaleX.SetValue(result.ScaleX);
-            _scaleY.SetValue(result.ScaleY);
-
-            // При одинаковом масштабе высота следует за шириной.
-            if (_project.Graph.EqualScale && Math.Abs(_project.Graph.HeightMm - result.HeightMm) > 1e-9)
-            {
-                _project.Graph.HeightMm = result.HeightMm;
-                _height.SetValue(result.HeightMm);
-            }
-
-            if (_gridMode.SelectedIndex <= 0 && result.TicksX != null && result.TicksY != null)
-            {
-                _stepX.SetValue(result.TicksX.Step);
-                _stepY.SetValue(result.TicksY.Step);
-            }
-        }
-        finally
-        {
-            _loading = false;
-        }
-
-        string info = string.Format(CultureInfo.CurrentCulture,
-            "X: {0} … {1};  Y: {2} … {3};  поле {4}×{5} мм;  точек: {6}",
-            NumberFormatter.ForInput(result.XMin), NumberFormatter.ForInput(result.XMax),
-            NumberFormatter.ForInput(result.YMin), NumberFormatter.ForInput(result.YMax),
-            NumberFormatter.ForInput(result.WidthMm, 2), NumberFormatter.ForInput(result.HeightMm, 2),
-            result.SourcePointCount);
-        if (result.Decimated)
-        {
-            info += string.Format(CultureInfo.CurrentCulture, ", после прореживания вершин: {0}", result.CurveVertexCount);
-        }
-        _infoLabel.Text = info;
-    }
-
-    private sealed class IssueItem
-    {
-        public DataIssue Issue;
-        public override string ToString() =>
-            (Issue.Severity == IssueSeverity.Error ? "Ошибка: " : "Внимание: ") + Issue.Message;
-    }
-
-    private void ShowIssues(BuildResult result)
-    {
-        _issuesList.BeginUpdate();
-        _issuesList.Items.Clear();
-        foreach (DataIssue issue in result.Issues)
-        {
-            // Пустая таблица — не ошибка для показа: об этом говорит надпись в предпросмотре.
-            if (result.SourcePointCount == 0 && issue.Row == 0 && issue.Column < 0 && issue.Message.Contains("пуста")) continue;
-            _issuesList.Items.Add(new IssueItem { Issue = issue });
-        }
-        _issuesList.EndUpdate();
-        _issuesList.Visible = _issuesList.Items.Count > 0;
     }
 
     private void SetStatus(string text)
@@ -1077,7 +525,7 @@ public sealed partial class MainForm : Form
 
         try
         {
-            if (!_session.PickPoint("Укажите точку вставки графика (левый нижний угол поля)", out double x, out double y))
+            if (!_session.PickPoint(PickPrompt(), out double x, out double y))
             {
                 SetStatus("Указание точки отменено, график не построен.");
                 return;
@@ -1101,7 +549,7 @@ public sealed partial class MainForm : Form
             // Убираем своё окно с экрана, чтобы оно не закрывало чертёж.
             WindowState = FormWindowState.Minimized;
             session.Activate();
-            picked = session.PickPoint("Укажите точку вставки графика (левый нижний угол поля)", out x, out y);
+            picked = session.PickPoint(PickPrompt(), out x, out y);
         }
         finally
         {

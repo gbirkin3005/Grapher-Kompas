@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using Grapher.UI.Controls;
@@ -6,12 +7,19 @@ using Grapher.UI.Rendering;
 
 namespace Grapher.UI;
 
-// Раскладка главного окна. Вид и формулировки повторяют окно FT Draw:
-// вместо поля формулы — таблица данных, ниже — пределы, угол наклона, тип линии и группа «Координатная сетка».
+// Раскладка главного окна. Слева — таблица данных, вид диаграммы и настройки: дерево элементов диаграммы
+// (как «Дерево построения» в КОМПАС) и параметры выбранного элемента. Справа — предпросмотр.
 public sealed partial class MainForm
 {
-    private const int LeftPanelWidth = 750;
-    private const int TabsHeight = 462;
+    private const int LeftPanelWidth = 800;
+
+    /// <summary>Начальная высота блока настроек; после загрузки окна подгоняется по самой высокой странице.</summary>
+    private const int SettingsHeight = 470;
+
+    private const int TreeWidth = 190;
+
+    /// <summary>Сколько места по высоте остаётся таблице данных, когда окно мало (при 100 % масштабе экрана).</summary>
+    private const int MinGridHeight = 110;
 
     // Строка меню и строка состояния
     private MenuStrip _menu;
@@ -20,42 +28,77 @@ public sealed partial class MainForm
     private ToolStripStatusLabel _statusKompas;
     private ToolStripStatusLabel _statusMessage;
 
-    // Данные и предпросмотр
-    private TabControl _tabs;
+    // Данные, вид диаграммы, предпросмотр
+    private Panel _leftPanel;
     private DataTableView _grid;
+    private Control _kindRow;
+    private ComboBox _kind;
+    private Label _kindHint;
     private PreviewControl _preview;
     private Label _infoLabel;
     private ListBox _issuesList;
     private Button _buildButton;
 
-    // Вкладка «График»
-    private CheckBox _xAuto, _yAuto;
-    private NumberBox _xMin, _xMax, _yMin, _yMax;
-    private NumberBox _angle;
-    private ComboBox _curveBox;
-    private Button _curveAdd, _curveRemove, _curveColorReset;
-    private TextBox _curveName;
-    private LineStyleComboBox _curveStyle;
-    private ColorSwatchButton _curveColor;
-    private ComboBox _curveMode, _curveMarker;
-    private NumberBox _curveMarkerSize;
-    private CheckBox _curveVisible;
-    private CheckBox _gridOn, _equalScale;
-    private NumberBox _width, _height, _scaleX, _scaleY, _stepX, _stepY;
-    private TextBox _rangeX, _rangeY;
-    private ComboBox _gridMode;
-    private NumericUpDown _everyX, _everyY;
+    // Настройки: дерево и страницы параметров
+    private Control _settingsArea;
+    private TreeView _tree;
+    private Label _pageTitle;
+    private Panel _pageHost;
+    private int _settingsNeeded;
+    private readonly List<Label> _captionLabels = new List<Label>();
+    private readonly List<Label> _wrapLabels = new List<Label>();
 
-    // Вкладка «Оси и подписи»
-    private CheckBox _axesOn, _arrowsOn, _frameOn, _labelsOn, _italic;
-    private NumberBox _axisExtension, _arrowLength, _tickLength, _labelHeight, _titleHeight;
-    private ComboBox _crossing, _titlePlacement, _decimalsX, _decimalsY, _decimalSeparator, _fontName;
-    private TextBox _titleX, _titleY;
+    /// <summary>Строка страницы параметров: подпись слева, элементы справа.</summary>
+    private sealed class Field
+    {
+        public Label Caption;
+        public Control Content;
 
-    // Вкладка «Размещение»
-    private RadioButton _pickPoint, _useCoords;
-    private NumberBox _placeX, _placeY, _decimateThreshold, _decimateTolerance;
-    private CheckBox _legendOn, _decimateOn;
+        public bool Visible
+        {
+            set
+            {
+                Caption.Visible = value;
+                Content.Visible = value;
+            }
+        }
+
+        public string Text
+        {
+            set => Caption.Text = value;
+        }
+    }
+
+    /// <summary>Таблица «подпись — элементы» внутри раздела страницы.</summary>
+    private sealed class FormBuilder
+    {
+        public readonly TableLayoutPanel Table = Ui.Table(2);
+        public readonly List<Label> Captions = new List<Label>();
+        public readonly List<Label> Hints = new List<Label>();
+        private int _row;
+
+        public Field Add(string caption, params Control[] controls)
+        {
+            Label label = Ui.Label(caption);
+            Captions.Add(label);
+            Control content = controls.Length == 1 ? controls[0] : Ui.Row(controls);
+            content.Anchor = AnchorStyles.Left;
+            Table.Controls.Add(label, 0, _row);
+            Table.Controls.Add(content, 1, _row);
+            _row++;
+            return new Field { Caption = label, Content = content };
+        }
+
+        public Control Wide(Control control)
+        {
+            // Длинные пояснения переносятся по ширине страницы.
+            if (control is Label label && label.ForeColor == SystemColors.GrayText) Hints.Add(label);
+            Table.Controls.Add(control, 0, _row);
+            Table.SetColumnSpan(control, 2);
+            _row++;
+            return control;
+        }
+    }
 
     private void BuildLayout()
     {
@@ -65,19 +108,23 @@ public sealed partial class MainForm
         Icon = AppIcon.Get();
         Font = SystemFonts.MessageBoxFont;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(1320, 810);
+        ClientSize = new Size(1340, 810);
         MinimumSize = new Size(1000, 640);
         KeyPreview = true;
 
         BuildMenu();
         BuildStatusStrip();
 
-        // Слева — таблица и настройки, справа — предпросмотр.
+        // Слева — таблица, вид диаграммы и настройки, справа — предпросмотр.
         var left = new Panel { Dock = DockStyle.Left, Width = LeftPanelWidth, Padding = new Padding(6, 4, 3, 4) };
+        _leftPanel = left;
         _grid = new DataTableView { Dock = DockStyle.Fill };
-        TabControl tabs = BuildTabs();
+        _settingsArea = BuildSettingsArea();
+        _kindRow = BuildKindRow();
         left.Controls.Add(_grid);
-        left.Controls.Add(tabs);
+        left.Controls.Add(_kindRow);
+        left.Controls.Add(_settingsArea);
+        left.Resize += (s, e) => FitSettings(false);
 
         Panel right = BuildPreviewPanel();
 
@@ -114,6 +161,13 @@ public sealed partial class MainForm
         Item(file, "Сохранить &как…", () => SaveProject(true), Keys.Control | Keys.Shift | Keys.S);
         file.DropDownItems.Add(new ToolStripSeparator());
         Item(file, "&Импорт из Excel/CSV…", ImportFile, Keys.Control | Keys.I);
+        file.DropDownItems.Add(new ToolStripSeparator());
+        var samples = new ToolStripMenuItem("&Примеры");
+        Item(samples, "График с &двумя шкалами (оформление ТММ)", () => LoadSample("sample:tmm"));
+        Item(samples, "&Полярная диаграмма", () => LoadSample("sample:polar"));
+        Item(samples, "&Треугольная диаграмма", () => LoadSample("sample:ternary"));
+        Item(samples, "Простой &график y = √x", () => LoadSample("sample"));
+        file.DropDownItems.Add(samples);
         file.DropDownItems.Add(new ToolStripSeparator());
         Item(file, "В&ыход", Close, Keys.None, "Alt+F4");
 
@@ -193,63 +247,151 @@ public sealed partial class MainForm
         return panel;
     }
 
-    private TabControl BuildTabs()
+    /// <summary>Строка над настройками: вид диаграммы и то, как при нём читаются столбцы таблицы.</summary>
+    private Control BuildKindRow()
     {
-        _tabs = new TabControl { Dock = DockStyle.Bottom, Height = TabsHeight };
-        _tabs.TabPages.Add(Page("График", BuildGraphPage()));
-        _tabs.TabPages.Add(Page("Оси и подписи", BuildAxesPage()));
-        _tabs.TabPages.Add(Page("Размещение", BuildPlacementPage()));
-        return _tabs;
+        _kind = Ui.Combo(250, "в прямоугольных координатах", "в полярных координатах", "треугольная (три составляющие)");
+        _kindHint = new Label
+        {
+            AutoSize = false,
+            AutoEllipsis = true,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = SystemColors.GrayText,
+            Margin = new Padding(8, 0, 0, 0)
+        };
+
+        var row = new TableLayoutPanel
+        {
+            ColumnCount = 3,
+            RowCount = 1,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Dock = DockStyle.Bottom,
+            Padding = new Padding(0, 4, 0, 2)
+        };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        row.Controls.Add(Ui.Label("Вид диаграммы:"), 0, 0);
+        row.Controls.Add(_kind, 1, 0);
+        row.Controls.Add(_kindHint, 2, 0);
+        return row;
     }
 
-    private static TabPage Page(string title, Control content)
+    // ------------------------------------------------------------------ дерево и страницы
+
+    private Control BuildSettingsArea()
     {
-        var page = new TabPage(title) { AutoScroll = true, Padding = new Padding(4), UseVisualStyleBackColor = true };
-        content.Dock = DockStyle.Top;
-        page.Controls.Add(content);
+        var area = new Panel { Dock = DockStyle.Bottom, Height = SettingsHeight, Padding = new Padding(0, 2, 0, 0) };
+
+        _tree = new TreeView
+        {
+            Dock = DockStyle.Left,
+            Width = TreeWidth,
+            HideSelection = false,
+            FullRowSelect = true,
+            ShowLines = true,
+            ShowRootLines = false
+        };
+
+        var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 0, 0, 0) };
+        _pageTitle = new Label
+        {
+            Dock = DockStyle.Top,
+            AutoSize = false,
+            Height = 26,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Font = new Font(SystemFonts.MessageBoxFont.FontFamily, SystemFonts.MessageBoxFont.Size + 1.5f, FontStyle.Bold)
+        };
+        _pageHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+        right.Controls.Add(_pageHost);
+        right.Controls.Add(_pageTitle);
+
+        BuildDiagramPage();
+        BuildScalesPage();
+        BuildScalePage();
+        BuildPolarAnglePage();
+        BuildPolarRadiusPage();
+        BuildTernaryPage();
+        BuildCurvesPage();
+        BuildCurvePage();
+        BuildDesignPage();
+        BuildPlacementPage();
+
+        area.Controls.Add(right);
+        area.Controls.Add(_tree);
+        return area;
+    }
+
+    private TableLayoutPanel NewPage(PageKind kind)
+    {
+        TableLayoutPanel page = Ui.Table(1);
+        page.ColumnStyles[0] = new ColumnStyle(SizeType.Percent, 100);
+        page.Dock = DockStyle.Top;
+        page.Visible = false;
+        _pages[kind] = page;
+        _pageHost.Controls.Add(page);
         return page;
+    }
+
+    private GroupBox AddSection(TableLayoutPanel page, string title, FormBuilder form)
+    {
+        GroupBox group = Ui.Group(title, form.Table);
+        page.Controls.Add(group, 0, page.Controls.Count);
+        _captionLabels.AddRange(form.Captions);
+        _wrapLabels.AddRange(form.Hints);
+        return group;
+    }
+
+    private Control AddLine(TableLayoutPanel page, Control control)
+    {
+        if (control is Label label) _wrapLabels.Add(label);
+        control.Margin = new Padding(6, 4, 3, 4);
+        page.Controls.Add(control, 0, page.Controls.Count);
+        return control;
+    }
+
+    /// <summary>
+    /// Размеры, зависящие от масштаба экрана: высота строк дерева, общая ширина столбца подписей
+    /// во всех разделах страниц, ширина переносимых пояснений.
+    /// </summary>
+    private void ScaleSettingsLayout()
+    {
+        int dpi = DeviceDpi;
+        _tree.ItemHeight = TextRenderer.MeasureText("Ag", _tree.Font).Height + 8 * dpi / 96;
+        foreach (Label label in _captionLabels) label.MinimumSize = new Size(175 * dpi / 96, 0);
+        foreach (Label label in _wrapLabels) label.MaximumSize = new Size(Math.Max(200, _pageHost.ClientSize.Width - 40 * dpi / 96), 0);
+    }
+
+    /// <summary>Высота блока настроек — по самой высокой странице; если окно мало, часть высоты остаётся таблице.</summary>
+    /// <param name="measure">Заново измерить страницы (после смены их состава).</param>
+    private void FitSettings(bool measure)
+    {
+        if (_settingsArea == null || _leftPanel == null || !IsHandleCreated) return;
+
+        if (measure || _settingsNeeded == 0)
+        {
+            int width = Math.Max(1, _pageHost.ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
+            int content = 0;
+            foreach (Control page in _pages.Values)
+            {
+                content = Math.Max(content, page.GetPreferredSize(new Size(width, 0)).Height);
+            }
+            int chrome = _settingsArea.Padding.Vertical + _pageTitle.Height + 4;
+            // Блок только растёт: при переходе между страницами окно не «прыгает».
+            if (content > 0) _settingsNeeded = Math.Max(_settingsNeeded, content + chrome);
+        }
+        if (_settingsNeeded == 0) return;
+
+        int minGrid = MinGridHeight * DeviceDpi / 96;
+        int available = _leftPanel.ClientSize.Height - _leftPanel.Padding.Vertical - _kindRow.Height - minGrid;
+        int target = Math.Max(Math.Min(_settingsNeeded, available), 220 * DeviceDpi / 96);
+        if (_settingsArea.Height != target) _settingsArea.Height = target;
     }
 
     private static NumberBox Number(int width, double min = double.NegativeInfinity, bool exclusiveMin = false, int decimals = 6) =>
         new NumberBox { Width = width, Minimum = min, ExclusiveMinimum = exclusiveMin, DisplayDecimals = decimals, Anchor = AnchorStyles.Left };
-
-    // ------------------------------------------------------------------ вкладка «График»
-
-    private Control BuildGraphPage()
-    {
-        TableLayoutPanel page = Ui.Table(1);
-        page.ColumnStyles[0] = new ColumnStyle(SizeType.Percent, 100);
-
-        // Ряд из трёх блоков, как в FT Draw: пределы и угол наклона.
-        var top = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, Margin = Padding.Empty };
-        top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
-        top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
-        top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28));
-
-        _xMin = Number(62);
-        _xMax = Number(62);
-        _xAuto = Ui.Check("авто");
-        top.Controls.Add(Ui.Group("Пределы изменения X", LimitsBlock(_xMin, _xMax, _xAuto)), 0, 0);
-
-        _yMin = Number(62);
-        _yMax = Number(62);
-        _yAuto = Ui.Check("авто");
-        top.Controls.Add(Ui.Group("Пределы изменения Y", LimitsBlock(_yMin, _yMax, _yAuto)), 1, 0);
-
-        _angle = Number(56, decimals: 2);
-        top.Controls.Add(Ui.Group("Угол наклона оси абсцисс", Ui.Row(_angle, Ui.Label("° к оси X чертежа"))), 2, 0);
-        page.Controls.Add(top, 0, 0);
-
-        var tips = new ToolTip();
-        string autoTip = "Пределы подбираются по данным и округляются до «красивых» значений.\nСнимите флажок, чтобы задать пределы вручную.";
-        tips.SetToolTip(_xAuto, autoTip);
-        tips.SetToolTip(_yAuto, autoTip);
-        tips.SetToolTip(_angle, "Угол наклона оси абсцисс графика к оси абсцисс чертежа, градусы.");
-
-        page.Controls.Add(Ui.Group("Тип и цвет линии графика", BuildCurveBlock()), 0, 1);
-        page.Controls.Add(Ui.Group("", BuildGridBlock()), 0, 2);
-        return page;
-    }
 
     private static Control LimitsBlock(NumberBox min, NumberBox max, CheckBox auto)
     {
@@ -258,109 +400,6 @@ public sealed partial class MainForm
         auto.Margin = new Padding(8, 5, 0, 3);
         return Ui.Row(Bracket("["), min, Bracket(","), max, Bracket("]"), auto);
     }
-
-    private Control BuildCurveBlock()
-    {
-        TableLayoutPanel block = Ui.Table(4);
-
-        _curveBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170, Anchor = AnchorStyles.Left };
-        _curveAdd = Ui.Button("Добавить");
-        _curveRemove = Ui.Button("Удалить");
-        _curveVisible = Ui.Check("показывать");
-        block.Controls.Add(Ui.Label("Кривая:"), 0, 0);
-        block.Controls.Add(_curveBox, 1, 0);
-        Control actions = Ui.Row(_curveAdd, _curveRemove, _curveVisible);
-        block.Controls.Add(actions, 2, 0);
-        block.SetColumnSpan(actions, 2);
-
-        _curveName = new TextBox { Width = 170, Anchor = AnchorStyles.Left };
-        _curveStyle = new LineStyleComboBox { Width = 205, Anchor = AnchorStyles.Left };
-        _curveColor = new ColorSwatchButton { Text = "Цвет…" };
-        _curveColorReset = Ui.Button("×");
-        _curveColorReset.Padding = new Padding(1);
-        var tips = new ToolTip();
-        tips.SetToolTip(_curveColor, "Свой цвет линии кривой. В чертеже для него создаётся стиль линии КОМПАС.");
-        tips.SetToolTip(_curveColorReset, "Вернуть цвет стиля КОМПАС");
-        block.Controls.Add(Ui.Label("Название:"), 0, 1);
-        block.Controls.Add(_curveName, 1, 1);
-        block.Controls.Add(Ui.Label("Тип линии:"), 2, 1);
-        block.Controls.Add(Ui.Row(_curveStyle, _curveColor, _curveColorReset), 3, 1);
-
-        _curveMode = Ui.Combo(170, "Плавная (сплайн)", "Ломаная");
-        _curveMarker = Ui.Combo(120, "нет", "окружность", "квадрат", "треугольник", "ромб", "крест");
-        _curveMarkerSize = Number(48, 0, true, 2);
-        block.Controls.Add(Ui.Label("Вид:"), 0, 2);
-        block.Controls.Add(_curveMode, 1, 2);
-        block.Controls.Add(Ui.Label("Маркеры точек:"), 2, 2);
-        block.Controls.Add(Ui.Row(_curveMarker, Ui.Label("размер, мм"), _curveMarkerSize), 3, 2);
-        return block;
-    }
-
-    private Control BuildGridBlock()
-    {
-        TableLayoutPanel block = Ui.Table(4);
-
-        _gridOn = Ui.Check("Координатная сетка");
-        _gridMode = Ui.Combo(230, "подобрать автоматически", "в единицах осей", "в миллиметрах на листе", "числом делений");
-        Label modeLabel = Ui.Label("шаг сетки задаётся:");
-        modeLabel.Margin = new Padding(28, 6, 3, 3);
-        Control header = Ui.Row(_gridOn, modeLabel, _gridMode);
-        block.Controls.Add(header, 0, 0);
-        block.SetColumnSpan(header, 4);
-
-        _width = Number(70, 0, true, 3);
-        _height = Number(70, 0, true, 3);
-        _rangeX = ReadOnlyBox(80);
-        _rangeY = ReadOnlyBox(80);
-        block.Controls.Add(Ui.Label("Габарит по оси абсцисс (X), мм"), 0, 1);
-        block.Controls.Add(_width, 1, 1);
-        block.Controls.Add(Ui.Label("соответствует величине размаха Xmax−Xmin"), 2, 1);
-        block.Controls.Add(_rangeX, 3, 1);
-        block.Controls.Add(Ui.Label("Габарит по оси ординат (Y), мм"), 0, 2);
-        block.Controls.Add(_height, 1, 2);
-        block.Controls.Add(Ui.Label("соответствует величине размаха Ymax−Ymin"), 2, 2);
-        block.Controls.Add(_rangeY, 3, 2);
-
-        Ui.Separator(block, 3);
-
-        // Коэффициенты редактируются: можно задать масштаб и получить габарит.
-        _scaleX = Number(80, 0, true, 6);
-        _scaleY = Number(80, 0, true, 6);
-        _equalScale = Ui.Check("Одинаковый масштаб по осям");
-        TableLayoutPanel scales = Ui.Table(3);
-        scales.Controls.Add(Ui.Label("Масштабный коэффициент по оси абсцисс (X), мм на единицу"), 0, 0);
-        scales.Controls.Add(_scaleX, 1, 0);
-        scales.Controls.Add(_equalScale, 2, 0);
-        scales.Controls.Add(Ui.Label("Масштабный коэффициент по оси ординат (Y), мм на единицу"), 0, 1);
-        scales.Controls.Add(_scaleY, 1, 1);
-        block.Controls.Add(scales, 0, 4);
-        block.SetColumnSpan(scales, 4);
-
-        Ui.Separator(block, 5);
-
-        _stepX = Number(70, 0, true, 6);
-        _stepY = Number(70, 0, true, 6);
-        _everyX = Every();
-        _everyY = Every();
-        TableLayoutPanel steps = Ui.Table(3);
-        steps.Controls.Add(Ui.Label("Шаг сетки по оси абсцисс (X)"), 0, 0);
-        steps.Controls.Add(_stepX, 1, 0);
-        steps.Controls.Add(Ui.Row(Ui.Label("подписывать каждую"), _everyX, Ui.Label("-ю линию")), 2, 0);
-        steps.Controls.Add(Ui.Label("Шаг сетки по оси ординат (Y)"), 0, 1);
-        steps.Controls.Add(_stepY, 1, 1);
-        steps.Controls.Add(Ui.Row(Ui.Label("подписывать каждую"), _everyY, Ui.Label("-ю линию")), 2, 1);
-        block.Controls.Add(steps, 0, 6);
-        block.SetColumnSpan(steps, 4);
-        return block;
-    }
-
-    private static TextBox ReadOnlyBox(int width) => new TextBox
-    {
-        Width = width,
-        ReadOnly = true,
-        TabStop = false,
-        Anchor = AnchorStyles.Left
-    };
 
     private static NumericUpDown Every() => new NumericUpDown
     {
@@ -371,85 +410,9 @@ public sealed partial class MainForm
         Anchor = AnchorStyles.Left
     };
 
-    // ------------------------------------------------------------------ вкладка «Оси и подписи»
+    private static ComboBox DecimalsCombo() => Ui.Combo(64, "авто", "0", "1", "2", "3", "4", "5", "6");
 
-    private Control BuildAxesPage()
-    {
-        TableLayoutPanel page = Ui.Table(1);
-        page.ColumnStyles[0] = new ColumnStyle(SizeType.Percent, 100);
+    private static RadioButton Radio(string text) => new RadioButton { Text = text, AutoSize = true, Margin = new Padding(3, 5, 12, 3) };
 
-        _axesOn = Ui.Check("Рисовать оси");
-        _arrowsOn = Ui.Check("Стрелки на концах осей");
-        _frameOn = Ui.Check("Рамка поля графика");
-        _axisExtension = Number(52, 0, false, 2);
-        _arrowLength = Number(52, 0, false, 2);
-        _tickLength = Number(52, 0, false, 2);
-        _crossing = Ui.Combo(330, "в левом нижнем углу рамки", "в нуле, если ноль внутри пределов");
-        TableLayoutPanel axes = Ui.Table(1);
-        axes.Controls.Add(Ui.Row(_axesOn, _arrowsOn, _frameOn), 0, 0);
-        axes.Controls.Add(Ui.Row(Ui.Label("Выступ оси за рамку, мм"), _axisExtension, Ui.Label("Длина стрелки, мм"), _arrowLength,
-            Ui.Label("Длина засечек, мм"), _tickLength), 0, 1);
-        axes.Controls.Add(Ui.Row(Ui.Label("Оси пересекаются"), _crossing), 0, 2);
-        page.Controls.Add(Ui.Group("Оси координат", axes), 0, 0);
-
-        _titleX = new TextBox { Width = 150, Anchor = AnchorStyles.Left };
-        _titleY = new TextBox { Width = 150, Anchor = AnchorStyles.Left };
-        _titlePlacement = Ui.Combo(150, "у конца оси", "по центру оси");
-        TableLayoutPanel titles = Ui.Table(1);
-        titles.Controls.Add(Ui.Row(Ui.Label("Ось X:"), _titleX, Ui.Label("Ось Y:"), _titleY, Ui.Label("Положение:"), _titlePlacement), 0, 0);
-        titles.Controls.Add(Ui.Hint("Название и единица измерения через запятую, например: σ, МПа"), 0, 1);
-        page.Controls.Add(Ui.Group("Подписи осей", titles), 0, 1);
-
-        _labelsOn = Ui.Check("Подписывать значения");
-        string[] decimals = { "авто", "0", "1", "2", "3", "4", "5", "6" };
-        _decimalsX = Ui.Combo(64, decimals);
-        _decimalsY = Ui.Combo(64, decimals);
-        _decimalSeparator = Ui.Combo(96, "запятая", "точка");
-        page.Controls.Add(Ui.Group("Числа на осях", Ui.Row(_labelsOn, Ui.Label("знаков после запятой: X"), _decimalsX, Ui.Label("Y"), _decimalsY,
-            Ui.Label("разделитель"), _decimalSeparator)), 0, 2);
-
-        _fontName = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 150, Anchor = AnchorStyles.Left };
-        foreach (string name in Grapher.Core.Model.DrawingFonts.All)
-        {
-            if (PreviewRenderer.IsFontInstalled(name)) _fontName.Items.Add(name);
-        }
-        _italic = Ui.Check("наклонный");
-        _labelHeight = Number(48, 0, true, 2);
-        _titleHeight = Number(48, 0, true, 2);
-        TableLayoutPanel font = Ui.Table(1);
-        font.Controls.Add(Ui.Row(Ui.Label("Шрифт"), _fontName, _italic, Ui.Label("высота чисел, мм"), _labelHeight,
-            Ui.Label("высота подписей осей, мм"), _titleHeight), 0, 0);
-        font.Controls.Add(Ui.Hint("Стандартные высоты шрифта: 2,5; 3,5; 5; 7; 10 мм"), 0, 1);
-        page.Controls.Add(Ui.Group("Шрифт по ГОСТ 2.304", font), 0, 3);
-        return page;
-    }
-
-    // ------------------------------------------------------------------ вкладка «Размещение»
-
-    private Control BuildPlacementPage()
-    {
-        TableLayoutPanel page = Ui.Table(1);
-        page.ColumnStyles[0] = new ColumnStyle(SizeType.Percent, 100);
-
-        _pickPoint = new RadioButton { Text = "Указать курсором в окне КОМПАС при построении", AutoSize = true, Margin = new Padding(3, 5, 3, 3) };
-        _useCoords = new RadioButton { Text = "Задать координаты в текущем виде, мм:", AutoSize = true, Margin = new Padding(3, 5, 3, 3) };
-        _placeX = Number(80, decimals: 3);
-        _placeY = Number(80, decimals: 3);
-        TableLayoutPanel point = Ui.Table(1);
-        point.Controls.Add(_pickPoint, 0, 0);
-        point.Controls.Add(Ui.Row(_useCoords, Ui.Label("X"), _placeX, Ui.Label("Y"), _placeY), 0, 1);
-        point.Controls.Add(Ui.Hint("Угол наклона графика задаётся на вкладке «График». В предпросмотре точка вставки отмечена красным."), 0, 2);
-        page.Controls.Add(Ui.Group("Точка вставки — левый нижний угол поля графика", point), 0, 0);
-
-        _legendOn = Ui.Check("Легенда: названия кривых справа от графика");
-        _decimateOn = Ui.Check("Прореживать кривые, если точек больше");
-        _decimateThreshold = Number(64, 2, false, 0);
-        _decimateTolerance = Number(52, 0, true, 3);
-        TableLayoutPanel extra = Ui.Table(1);
-        extra.Controls.Add(_legendOn, 0, 0);
-        extra.Controls.Add(Ui.Row(_decimateOn, _decimateThreshold, Ui.Label("допуск, мм на листе"), _decimateTolerance), 0, 1);
-        extra.Controls.Add(Ui.Hint("При прореживании остаются точки, без которых линия отклонилась бы от исходной больше допуска."), 0, 2);
-        page.Controls.Add(Ui.Group("Дополнительно", extra), 0, 1);
-        return page;
-    }
+    private static TextBox TextField(int width) => new TextBox { Width = width, Anchor = AnchorStyles.Left };
 }

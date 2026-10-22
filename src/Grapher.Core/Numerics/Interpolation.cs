@@ -41,12 +41,33 @@ public static class Interpolation
     /// Выбирает способ сглаживания: для графика функции — монотонный кубический сплайн
     /// (без ложных выбросов), для произвольной линии — центростремительный сплайн Катмулла — Рома.
     /// </summary>
-    public static List<CubicBezier> Smooth(IReadOnlyList<Pt> points)
+    /// <param name="periodic">
+    /// Для графика функции: значения на концах совпадают, функция периодическая —
+    /// касательные в первой и последней точках делаются одинаковыми, чтобы на стыке циклов не было излома.
+    /// </param>
+    public static List<CubicBezier> Smooth(IReadOnlyList<Pt> points, bool periodic = false)
     {
         List<Pt> clean = RemoveConsecutiveDuplicates(points);
         if (clean.Count < 2) return new List<CubicBezier>();
         if (clean.Count == 2) return new List<CubicBezier> { CubicBezier.FromLine(clean[0], clean[1]) };
-        return IsStrictlyMonotonicX(clean) ? MonotoneCubic(clean) : CatmullRomCentripetal(clean);
+        return IsStrictlyMonotonicX(clean) ? MonotoneCubic(clean, periodic) : CatmullRomCentripetal(clean);
+    }
+
+    /// <summary>
+    /// Похожа ли последовательность на один период функции: X монотонны, а значения на концах совпадают
+    /// (с точностью до тысячной доли размаха).
+    /// </summary>
+    public static bool LooksPeriodic(IReadOnlyList<Pt> points)
+    {
+        if (points.Count < 4 || !IsStrictlyMonotonicX(points)) return false;
+        double min = double.MaxValue, max = double.MinValue;
+        foreach (Pt p in points)
+        {
+            if (p.Y < min) min = p.Y;
+            if (p.Y > max) max = p.Y;
+        }
+        double range = max - min;
+        return range > 0 && Math.Abs(points[0].Y - points[points.Count - 1].Y) <= range * 1e-3;
     }
 
     /// <summary>
@@ -54,7 +75,7 @@ public static class Interpolation
     /// На каждом участке кривая не выходит за значения в его концах, поэтому выбросов нет.
     /// Требует строго монотонных X.
     /// </summary>
-    public static List<CubicBezier> MonotoneCubic(IReadOnlyList<Pt> points)
+    public static List<CubicBezier> MonotoneCubic(IReadOnlyList<Pt> points, bool periodic = false)
     {
         int n = points.Count;
         if (n < 2) return new List<CubicBezier>();
@@ -68,7 +89,7 @@ public static class Interpolation
             // Убывающие X: считаем по развёрнутой последовательности и разворачиваем результат.
             var reversed = new List<Pt>(n);
             for (int i = n - 1; i >= 0; i--) reversed.Add(points[i]);
-            List<CubicBezier> forward = MonotoneCubic(reversed);
+            List<CubicBezier> forward = MonotoneCubic(reversed, periodic);
             var backward = new List<CubicBezier>(forward.Count);
             for (int i = forward.Count - 1; i >= 0; i--) backward.Add(forward[i].Reversed());
             return backward;
@@ -103,8 +124,24 @@ public static class Interpolation
                     m[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
                 }
             }
-            m[0] = EndSlope(h[0], h[1], delta[0], delta[1]);
-            m[n - 1] = EndSlope(h[n - 2], h[n - 3], delta[n - 2], delta[n - 3]);
+            if (periodic)
+            {
+                // Стык циклов — обычная внутренняя точка: слева от неё последний участок, справа первый.
+                double before = delta[n - 2], after = delta[0];
+                double slope = 0;
+                if (before != 0 && after != 0 && (before > 0) == (after > 0))
+                {
+                    double w1 = 2 * h[0] + h[n - 2];
+                    double w2 = h[0] + 2 * h[n - 2];
+                    slope = (w1 + w2) / (w1 / before + w2 / after);
+                }
+                m[0] = m[n - 1] = slope;
+            }
+            else
+            {
+                m[0] = EndSlope(h[0], h[1], delta[0], delta[1]);
+                m[n - 1] = EndSlope(h[n - 2], h[n - 3], delta[n - 2], delta[n - 3]);
+            }
         }
 
         var result = new List<CubicBezier>(n - 1);

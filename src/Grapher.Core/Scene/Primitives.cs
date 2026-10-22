@@ -16,7 +16,17 @@ public enum PrimitiveRole
     AxisTitle,
     Curve,
     Marker,
-    Legend
+    Legend,
+    /// <summary>Линия-выноска с полкой у подписи кривой.</summary>
+    Leader,
+    /// <summary>Подпись кривой на поле диаграммы.</summary>
+    CurveLabel,
+    /// <summary>Единица измерения у шкалы.</summary>
+    Unit,
+    /// <summary>Пояснительная надпись (масштаб шкалы).</summary>
+    Note,
+    /// <summary>Штриховая линия разрыва функции.</summary>
+    Jump
 }
 
 public enum TextAlign
@@ -155,15 +165,18 @@ public sealed class BezierPrimitive : Primitive
     }
 }
 
-/// <summary>Окружность (маркеры точек).</summary>
+/// <summary>Окружность (маркеры точек, линии полярной сетки); может быть залита.</summary>
 public sealed class CirclePrimitive : Primitive
 {
     public Pt Center { get; set; }
     public double Radius { get; set; }
     public LineStyleId Style { get; set; }
 
+    /// <summary>Залить круг (маркер «точка»).</summary>
+    public bool Filled { get; set; }
+
     public override Primitive Transform(Transform2D t) =>
-        new CirclePrimitive { Role = Role, Color = Color, Center = t.Apply(Center), Radius = Radius * t.Scale, Style = Style };
+        new CirclePrimitive { Role = Role, Color = Color, Center = t.Apply(Center), Radius = Radius * t.Scale, Style = Style, Filled = Filled };
 
     public override void CollectBoundsPoints(List<Pt> points)
     {
@@ -172,8 +185,112 @@ public sealed class CirclePrimitive : Primitive
     }
 }
 
+/// <summary>Дуга окружности: от начального угла против часовой стрелки на заданный угол.</summary>
+public sealed class ArcPrimitive : Primitive
+{
+    public Pt Center { get; set; }
+    public double Radius { get; set; }
+
+    /// <summary>Начальный угол, градусы от оси X против часовой стрелки.</summary>
+    public double StartDeg { get; set; }
+
+    /// <summary>Угловая длина дуги, градусы (больше нуля, меньше 360).</summary>
+    public double SweepDeg { get; set; }
+
+    public LineStyleId Style { get; set; }
+
+    public Pt PointAt(double angleDeg)
+    {
+        double a = angleDeg * System.Math.PI / 180.0;
+        return new Pt(Center.X + Radius * System.Math.Cos(a), Center.Y + Radius * System.Math.Sin(a));
+    }
+
+    public Pt Start => PointAt(StartDeg);
+    public Pt End => PointAt(StartDeg + SweepDeg);
+
+    public override Primitive Transform(Transform2D t) => new ArcPrimitive
+    {
+        Role = Role,
+        Color = Color,
+        Center = t.Apply(Center),
+        Radius = Radius * t.Scale,
+        StartDeg = StartDeg + t.AngleDeg,
+        SweepDeg = SweepDeg,
+        Style = Style
+    };
+
+    public override void CollectBoundsPoints(List<Pt> points)
+    {
+        int steps = System.Math.Max(2, (int)System.Math.Ceiling(SweepDeg / 15));
+        for (int i = 0; i <= steps; i++)
+        {
+            points.Add(PointAt(StartDeg + SweepDeg * i / steps));
+        }
+    }
+}
+
+/// <summary>
+/// Объект «Точка» КОМПАС. Вид задаёт номер стиля точки (1 — точка, 2 — крестик, 3 — x-точка, 4 — квадрат,
+/// 5 — треугольник, 6 — окружность, 7 — звезда, 8 — перечёркнутый квадрат, 9 — утолщённый крестик),
+/// размер на листе — сам КОМПАС.
+/// </summary>
+public sealed class PointPrimitive : Primitive
+{
+    /// <summary>Размер значка точки на листе, мм (измерено на КОМПАС-3D v25).</summary>
+    public const double SymbolSizeMm = 3.13;
+
+    /// <summary>Диаметр точки стиля «точка», мм.</summary>
+    public const double DotSizeMm = 1.6;
+
+    /// <summary>Размер утолщённого крестика, мм.</summary>
+    public const double BoldCrossSizeMm = 3.56;
+
+    public Pt Position { get; set; }
+    public int Style { get; set; } = 1;
+
+    /// <summary>Размер значка на листе, мм.</summary>
+    public double SizeMm => Style == 1 ? DotSizeMm : Style == 9 ? BoldCrossSizeMm : SymbolSizeMm;
+
+    public override Primitive Transform(Transform2D t) => new PointPrimitive { Role = Role, Color = Color, Position = t.Apply(Position), Style = Style };
+
+    public override void CollectBoundsPoints(List<Pt> points)
+    {
+        double r = SizeMm / 2;
+        points.Add(new Pt(Position.X - r, Position.Y - r));
+        points.Add(new Pt(Position.X + r, Position.Y + r));
+    }
+}
+
+/// <summary>
+/// Стрелка — объект «Линия-выноска» КОМПАС без полки и текста: тонкая линия от <see cref="Tail"/>
+/// до <see cref="Tip"/> со стрелкой на конце. Размер стрелки задаёт КОМПАС.
+/// </summary>
+public sealed class LeaderArrowPrimitive : Primitive
+{
+    /// <summary>Длина стрелки линии-выноски на листе, мм (измерено на КОМПАС-3D v25).</summary>
+    public const double HeadLengthMm = 5.0;
+
+    /// <summary>Ширина стрелки у основания, мм.</summary>
+    public const double HeadWidthMm = 1.4;
+
+    /// <summary>Начало линии (точка полки выноски).</summary>
+    public Pt Tail { get; set; }
+
+    /// <summary>Остриё стрелки.</summary>
+    public Pt Tip { get; set; }
+
+    public override Primitive Transform(Transform2D t) => new LeaderArrowPrimitive { Role = Role, Color = Color, Tail = t.Apply(Tail), Tip = t.Apply(Tip) };
+
+    public override void CollectBoundsPoints(List<Pt> points)
+    {
+        points.Add(Tail);
+        points.Add(Tip);
+    }
+}
+
 /// <summary>
 /// Однострочный текст. Точка привязки лежит на базовой линии; положение по горизонтали задаёт <see cref="Align"/>.
+/// В тексте допустимы индексы в записи <see cref="TextMarkup"/> («V_q», «м^2»).
 /// Высота — высота прописных букв по ГОСТ 2.304 в мм на листе; масштаб вида на неё не влияет.
 /// </summary>
 public sealed class TextPrimitive : Primitive

@@ -80,11 +80,18 @@ public class GraphBuilderTests
         Assert.All(axes, axis => Assert.Equal(LineStyleId.Main, axis.Style));
         Assert.All(axes, axis => Assert.Equal(new Pt(0, 0), axis.A));
 
-        List<PolylinePrimitive> arrows = Of<PolylinePrimitive>(result, PrimitiveRole.Arrow);
+        // Наконечники — линии-выноски КОМПАС со стрелкой; сама ось — отрезок основной линии.
+        List<LeaderArrowPrimitive> arrows = Of<LeaderArrowPrimitive>(result, PrimitiveRole.Arrow);
         Assert.Equal(2, arrows.Count);
-        Assert.All(arrows, arrow => Assert.True(arrow.Closed && arrow.Filled));
-        Assert.Contains(arrows, a => a.Points[0] == new Pt(110, 0));   // остриё оси X: 100 мм + выступ 10 мм
-        Assert.Contains(arrows, a => a.Points[0] == new Pt(0, 110));
+        Assert.Contains(arrows, a => a.Tip == new Pt(110, 0));   // остриё оси X: 100 мм + выступ 10 мм
+        Assert.Contains(arrows, a => a.Tip == new Pt(0, 110));
+
+        GraphProject drawn = SampleData.SqrtProject();
+        drawn.Graph.NativeArrows = false;
+        List<PolylinePrimitive> heads = Of<PolylinePrimitive>(GraphBuilder.Build(drawn), PrimitiveRole.Arrow);
+        Assert.Equal(2, heads.Count);
+        Assert.All(heads, arrow => Assert.True(arrow.Closed && arrow.Filled));
+        Assert.Contains(heads, a => a.Points[0] == new Pt(110, 0));
     }
 
     [Fact]
@@ -96,8 +103,11 @@ public class GraphBuilderTests
         string[] xLabels = labels.Where(t => t.Align == TextAlign.Center).OrderBy(t => t.Anchor.X).Select(t => t.Text).ToArray();
         string[] yLabels = labels.Where(t => t.Align == TextAlign.Right).OrderBy(t => t.Anchor.Y).Select(t => t.Text).ToArray();
 
-        Assert.Equal(new[] { "0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100" }, xLabels);
+        // Ноль общий для обеих шкал: он нанесён один раз, слева внизу от точки их пересечения (Р 50-77-88, п. 2.7).
+        Assert.Equal(new[] { "10", "20", "30", "40", "50", "60", "70", "80", "90", "100" }, xLabels);
         Assert.Equal(new[] { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10" }, yLabels);
+        TextPrimitive zero = labels.Single(t => t.Text == "0");
+        Assert.True(zero.Anchor.X < 0 && zero.Anchor.Y < 0);
         Assert.All(labels, t => Assert.Equal(3.5, t.HeightMm));
         Assert.All(labels, t => Assert.Equal("GOST Type AU", t.FontName));
 
@@ -484,12 +494,13 @@ public class GraphBuilderTests
             .Where(t => t.Align == align).OrderBy(t => t.Anchor.X + t.Anchor.Y).Select(t => t.Text).ToArray();
 
         BuildResult comma = GraphBuilder.Build(project);
-        Assert.Equal(new[] { "0,00", "0,25", "0,50", "0,75", "1,00" }, Labels(comma, TextAlign.Center));
-        Assert.Equal(new[] { "0,00", "0,50", "1,00" }, Labels(comma, TextAlign.Right));
+        // Ноль пишется без дробной части и один раз на обе шкалы.
+        Assert.Equal(new[] { "0,25", "0,50", "0,75", "1,00" }, Labels(comma, TextAlign.Center));
+        Assert.Equal(new[] { "0", "0,50", "1,00" }, Labels(comma, TextAlign.Right));
 
         project.Graph.DecimalComma = false;
         BuildResult point = GraphBuilder.Build(project);
-        Assert.Equal(new[] { "0.00", "0.25", "0.50", "0.75", "1.00" }, Labels(point, TextAlign.Center));
+        Assert.Equal(new[] { "0.25", "0.50", "0.75", "1.00" }, Labels(point, TextAlign.Center));
     }
 
     [Fact]
@@ -530,12 +541,29 @@ public class GraphBuilderTests
         Assert.Equal(50, x.Anchor.X);
         Assert.Equal(0, x.AngleDeg);
         Assert.True(x.Anchor.Y + x.HeightMm < -(1.5 + 1 + 3.5));          // ниже числовых подписей
-        Assert.Equal(90, y.AngleDeg);
-        Assert.Equal(50, y.Anchor.Y);
+        // Символ величины стоит горизонтально, у середины шкалы (Р 50-77-88, п. 4.2, 4.3).
+        Assert.Equal(0, y.AngleDeg);
+        Assert.Equal(TextAlign.Right, y.Align);
+        Assert.Equal(50, y.Anchor.Y + y.HeightMm / 2, 9);
         double labelsLeft = Of<TextPrimitive>(result, PrimitiveRole.TickLabel)
             .Where(t => t.Align == TextAlign.Right)
             .Min(t => t.Anchor.X - TextMetrics.EstimateWidth(t.Text, t.HeightMm));
         Assert.True(y.Anchor.X < labelsLeft);                             // левее числовых подписей
+    }
+
+    [Fact]
+    public void Axis_name_in_words_runs_along_the_axis()
+    {
+        GraphProject project = SampleData.SqrtProject();
+        project.Graph.TitlePlacement = AxisTitlePlacement.Centered;
+        project.YAxis.Title = "Диаметр заготовки, мм";
+
+        BuildResult result = GraphBuilder.Build(project);
+
+        // Наименование располагают параллельно оси (Р 50-77-88, п. 4.3).
+        TextPrimitive y = Of<TextPrimitive>(result, PrimitiveRole.AxisTitle).Single(t => t.Text == "Диаметр заготовки, мм");
+        Assert.Equal(90, y.AngleDeg);
+        Assert.Equal(50, y.Anchor.Y);
     }
 
     [Fact]

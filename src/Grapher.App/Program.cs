@@ -150,9 +150,8 @@ internal static class Program
 
     private static GraphProject LoadProject(string source)
     {
-        return string.Equals(source, "sample", StringComparison.OrdinalIgnoreCase)
-            ? SampleData.SqrtProject()
-            : ProjectSerializer.Load(source);
+        // sample, sample:tmm, sample:polar, sample:ternary — встроенные примеры; иначе файл проекта.
+        return SampleData.ByName(source) ?? ProjectSerializer.Load(source);
     }
 
     private static int Draw(string[] args, List<string> log)

@@ -44,7 +44,12 @@ public static class TickGenerator
         return n;
     }
 
-    public static AxisTicks Generate(GridStepMode mode, double stepValue, double min, double max, double sizeMm, string axisName)
+    public static AxisTicks Generate(GridStepMode mode, double stepValue, double min, double max, double sizeMm, string axisName) =>
+        Generate(mode, stepValue, min, max, sizeMm, axisName, NumberStyle.Decimal);
+
+    /// <param name="numbers">Для углов в долях π автоматический шаг подбирается кратным π/12, π/6, π/4…</param>
+    public static AxisTicks Generate(GridStepMode mode, double stepValue, double min, double max, double sizeMm, string axisName,
+        NumberStyle numbers)
     {
         var ticks = new AxisTicks();
         double range = max - min;
@@ -56,6 +61,8 @@ public static class TickGenerator
         switch (mode)
         {
             case GridStepMode.Units:
+                // Шаг угла обычно вводят числом (0,5236): линии ставим точно на доли π.
+                if (numbers == NumberStyle.PiFractions) stepValue = NiceScale.SnapToPi(stepValue);
                 if (!(stepValue > 0))
                 {
                     ticks.Warning = "Шаг сетки по оси " + axisName + " должен быть больше нуля — шаг подобран автоматически.";
@@ -103,9 +110,23 @@ public static class TickGenerator
         if (ticks.Values.Count == 0)
         {
             // Автоматический режим либо некорректный ввод.
-            double step = NiceScale.AutoStep(min, max, AutoDivisions(sizeMm));
-            ticks.Step = step;
-            ticks.Values.AddRange(NiceScale.Multiples(min, max, step, MaxLines + 1));
+            if (numbers == NumberStyle.PiFractions)
+            {
+                double piStep = NiceScale.AutoStepPi(min, max, AutoDivisions(sizeMm));
+                ticks.Step = piStep;
+                // Номера линий считаем в шагах, чтобы значения были точными кратными доли π.
+                long first = (long)Math.Ceiling(min / piStep - 1e-6), last = (long)Math.Floor(max / piStep + 1e-6);
+                for (long i = first; i <= last && ticks.Values.Count <= MaxLines; i++)
+                {
+                    ticks.Values.Add(i * piStep);
+                }
+            }
+            else
+            {
+                double step = NiceScale.AutoStep(min, max, AutoDivisions(sizeMm));
+                ticks.Step = step;
+                ticks.Values.AddRange(NiceScale.Multiples(min, max, step, MaxLines + 1));
+            }
         }
 
         ticks.Decimals = DecimalsFor(ticks.Values, ticks.Step);

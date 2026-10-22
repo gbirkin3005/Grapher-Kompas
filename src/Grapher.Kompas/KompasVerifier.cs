@@ -14,8 +14,11 @@ public sealed class VerificationReport
     public int Polylines { get; set; }
     public int Beziers { get; set; }
     public int Circles { get; set; }
+    public int Arcs { get; set; }
     public int Texts { get; set; }
     public int Fills { get; set; }
+    public int Points { get; set; }
+    public int Leaders { get; set; }
 
     /// <summary>Сколько объектов проверено на свой цвет линии.</summary>
     public int ColouredObjects { get; set; }
@@ -28,8 +31,9 @@ public sealed class VerificationReport
     public bool Ok => Mismatches.Count == 0;
 
     public override string ToString() => string.Format(CultureInfo.InvariantCulture,
-        "lines={0}; polylines={1}; beziers={2}; circles={3}; texts={4}; fills={5}; coloured={8}; maxDeviation={6:0.############} mm; mismatches={7}",
-        Lines, Polylines, Beziers, Circles, Texts, Fills, MaxDeviation, Mismatches.Count, ColouredObjects);
+        "lines={0}; polylines={1}; beziers={2}; circles={3}; arcs={9}; texts={4}; fills={5}; points={10}; leaders={11}; coloured={8}; " +
+        "maxDeviation={6:0.############} mm; mismatches={7}",
+        Lines, Polylines, Beziers, Circles, Texts, Fills, MaxDeviation, Mismatches.Count, ColouredObjects, Arcs, Points, Leaders);
 }
 
 /// <summary>
@@ -70,7 +74,10 @@ public static class KompasVerifier
         var polylines = new List<PolylinePrimitive>();
         var beziers = new List<BezierPrimitive>();
         var circles = new List<CirclePrimitive>();
+        var arcs = new List<ArcPrimitive>();
         var texts = new List<TextPrimitive>();
+        var points = new List<PointPrimitive>();
+        var leaders = new List<LeaderArrowPrimitive>();
         int fills = 0;
         foreach (Primitive primitive in placed.Primitives)
         {
@@ -82,8 +89,14 @@ public static class KompasVerifier
                     if (p.Closed && p.Filled) fills++;
                     break;
                 case BezierPrimitive p: beziers.Add(p); break;
-                case CirclePrimitive p: circles.Add(p); break;
+                case CirclePrimitive p:
+                    circles.Add(p);
+                    if (p.Filled) fills++;
+                    break;
+                case ArcPrimitive p: arcs.Add(p); break;
                 case TextPrimitive p when !string.IsNullOrEmpty(p.Text): texts.Add(p); break;
+                case PointPrimitive p: points.Add(p); break;
+                case LeaderArrowPrimitive p: leaders.Add(p); break;
             }
         }
 
@@ -192,19 +205,76 @@ public static class KompasVerifier
             }
         }
 
-        // Тексты
+        // Дуги
+        IArcs kArcs = container.Arcs;
+        report.Arcs = kArcs.Count;
+        if (CountsMatch("Дуги", arcs.Count, kArcs.Count))
+        {
+            for (int i = 0; i < arcs.Count; i++)
+            {
+                IArc k = kArcs.get_Arc(i);
+                Check("Дуга " + i + ", центр", arcs[i].Center, k.Xc, k.Yc);
+                // Концы дуги: начало — под первым углом, конец — под вторым, обход против часовой стрелки.
+                Check("Дуга " + i + ", начало", arcs[i].Start, k.X1, k.Y1);
+                Check("Дуга " + i + ", конец", arcs[i].End, k.X2, k.Y2);
+                CheckStyle("Дуга " + i, k.Style, arcs[i].Style, arcs[i].Color);
+                if (Math.Abs(k.Radius - arcs[i].Radius) > tolerance) report.Mismatches.Add("Дуга " + i + ": радиус " + k.Radius);
+                if (k.Direction) report.Mismatches.Add("Дуга " + i + ": обход по часовой стрелке");
+            }
+        }
+
+        // Тексты. Индексы и дроби — штатные элементы текста КОМПАС; строка читается обратно с кодами
+        // вида «V$m;q$» (индекс) и «$dπ;6$» (дробь).
+        var expectedTexts = new List<TextPrimitive>();
+        foreach (TextPrimitive text in texts)
+        {
+            if (TextWriter.KompasString(text.Text).Length > 0) expectedTexts.Add(text);
+        }
+
         IDrawingTexts kTexts = container.DrawingTexts;
         report.Texts = kTexts.Count;
-        if (CountsMatch("Тексты", texts.Count, kTexts.Count))
+        if (CountsMatch("Тексты", expectedTexts.Count, kTexts.Count))
         {
-            for (int i = 0; i < texts.Count; i++)
+            for (int i = 0; i < expectedTexts.Count; i++)
             {
                 IDrawingText k = kTexts.get_DrawingText(i);
-                Check("Текст «" + texts[i].Text + "»", texts[i].Anchor, k.X, k.Y);
+                TextPrimitive source = expectedTexts[i];
+                string expected = TextWriter.KompasString(source.Text);
                 string actual = ((IText)k).Str;
-                if (actual != texts[i].Text) report.Mismatches.Add("Текст " + i + ": «" + actual + "» вместо «" + texts[i].Text + "»");
-                double angle = (k.Angle - texts[i].AngleDeg) % 360;
-                if (Math.Abs(angle) > 1e-6 && Math.Abs(Math.Abs(angle) - 360) > 1e-6) report.Mismatches.Add("Текст «" + texts[i].Text + "»: угол " + k.Angle);
+                if (actual != expected) report.Mismatches.Add("Текст " + i + ": «" + actual + "» вместо «" + expected + "»");
+
+                Check("Текст «" + expected + "»", source.Anchor, k.X, k.Y);
+                double angle = (k.Angle - source.AngleDeg) % 360;
+                if (Math.Abs(angle) > 1e-6 && Math.Abs(Math.Abs(angle) - 360) > 1e-6) report.Mismatches.Add("Текст «" + expected + "»: угол " + k.Angle);
+            }
+        }
+
+        // Точки
+        IPoints kPoints = container.Points;
+        report.Points = kPoints.Count;
+        if (CountsMatch("Точки", points.Count, kPoints.Count))
+        {
+            for (int i = 0; i < points.Count; i++)
+            {
+                IPoint k = kPoints.get_Point(i);
+                Check("Точка " + i, points[i].Position, k.X, k.Y);
+                if (k.Style != points[i].Style) report.Mismatches.Add("Точка " + i + ": стиль " + k.Style + " вместо " + points[i].Style);
+            }
+        }
+
+        // Стрелки — линии-выноски
+        ILeaders kLeaders = ((ISymbols2DContainer)macro).Leaders;
+        report.Leaders = kLeaders.Count;
+        if (CountsMatch("Линии-выноски", leaders.Count, kLeaders.Count))
+        {
+            for (int i = 0; i < leaders.Count; i++)
+            {
+                var k = (IBaseLeader)kLeaders.get_Leader(i);
+                var branches = (IBranchs)k;
+                Check("Выноска " + i + ", начало", leaders[i].Tail, branches.X0, branches.Y0);
+                if (!CountsMatch("Выноска " + i + ", ветви", 1, branches.BranchCount)) continue;
+                Check("Выноска " + i + ", остриё", leaders[i].Tip, branches.BranchX[0], branches.BranchY[0]);
+                if (k.ArrowType != Kompas6Constants.ksArrowEnum.ksLeaderArrow) report.Mismatches.Add("Выноска " + i + ": стрелка " + k.ArrowType);
             }
         }
 
