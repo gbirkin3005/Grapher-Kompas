@@ -54,7 +54,9 @@ if (-not (Test-Path $Path)) {
 
 $dll = (Resolve-Path $Path).Path
 $assemblyName = [System.Reflection.AssemblyName]::GetAssemblyName($dll)
-$codeBase = ([System.Uri]$dll).AbsoluteUri
+# Адрес без экранирования, как у RegAsm /codebase: с Program%20Files или %D0%… вместо
+# кириллицы .NET библиотеку не находит, и КОМПАС не может её загрузить.
+$codeBase = 'file:///' + $dll.Replace('\', '/')
 $mscoree = Join-Path ([Environment]::GetFolderPath('System')) 'mscoree.dll'
 
 # New-Item -Force пересоздаёт существующий раздел и стирает его значения,

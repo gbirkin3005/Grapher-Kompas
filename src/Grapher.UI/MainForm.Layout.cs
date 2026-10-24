@@ -11,7 +11,14 @@ namespace Grapher.UI;
 // (как «Дерево построения» в КОМПАС) и параметры выбранного элемента. Справа — предпросмотр.
 public sealed partial class MainForm
 {
-    private const int LeftPanelWidth = 800;
+    /// <summary>Ширина левой части по умолчанию: в ней помещаются поля самой широкой страницы настроек.</summary>
+    private const int LeftPanelWidth = 820;
+
+    /// <summary>Уже этого левая часть (таблица и настройки) разделителем не сжимается (при 100 % масштабе экрана).</summary>
+    private const int MinLeftWidth = 500;
+
+    /// <summary>Сколько места по ширине всегда остаётся предпросмотру (при 100 % масштабе экрана).</summary>
+    private const int MinPreviewWidth = 200;
 
     /// <summary>Начальная высота блока настроек; после загрузки окна подгоняется по самой высокой странице.</summary>
     private const int SettingsHeight = 470;
@@ -20,6 +27,9 @@ public sealed partial class MainForm
 
     /// <summary>Сколько места по высоте остаётся таблице данных, когда окно мало (при 100 % масштабе экрана).</summary>
     private const int MinGridHeight = 110;
+
+    /// <summary>Меньше этой высоты блок настроек разделителем не сжимается (при 100 % масштабе экрана).</summary>
+    private const int MinSettingsHeight = 120;
 
     // Строка меню и строка состояния
     private MenuStrip _menu;
@@ -38,6 +48,24 @@ public sealed partial class MainForm
     private Label _infoLabel;
     private ListBox _issuesList;
     private Button _buildButton;
+
+    // Разделители: между таблицей и частью окна под ней (вид диаграммы и настройки), между левой частью и предпросмотром
+    private SplitBar _settingsSplit;
+    private SplitBar _previewSplit;
+    private Panel _lowerArea;
+
+    /// <summary>Высота блока настроек, заданная разделителем, при 100 % масштабе экрана; 0 — по самой высокой странице.</summary>
+    private int _userSettingsHeight;
+
+    /// <summary>Ширина левой части, заданная разделителем, при 100 % масштабе экрана; 0 — по умолчанию.</summary>
+    private int _userLeftWidth;
+
+    private int _dragStartHeight;
+    private int _dragStartWidth;
+    private int _lastLeftWidth;
+
+    /// <summary>Тянут вертикальный разделитель: страница настроек перестраивается, когда его отпустят.</summary>
+    private bool _leftDragging;
 
     // Настройки: дерево и страницы параметров
     private Control _settingsArea;
@@ -115,20 +143,39 @@ public sealed partial class MainForm
         BuildMenu();
         BuildStatusStrip();
 
-        // Слева — таблица, вид диаграммы и настройки, справа — предпросмотр.
-        var left = new Panel { Dock = DockStyle.Left, Width = LeftPanelWidth, Padding = new Padding(6, 4, 3, 4) };
+        // Слева — таблица, вид диаграммы и настройки, справа — предпросмотр; между ними — разделитель.
+        var left = new Panel { Dock = DockStyle.Left, Width = LeftPanelWidth, Padding = new Padding(6, 4, 0, 4) };
         _leftPanel = left;
         _grid = new DataTableView { Dock = DockStyle.Fill };
         _settingsArea = BuildSettingsArea();
         _kindRow = BuildKindRow();
+        // Под таблицей — вид диаграммы и настройки; границу между ними и таблицей двигает разделитель.
+        _lowerArea = new Panel { Dock = DockStyle.Bottom, Height = SettingsHeight };
+        _lowerArea.Controls.Add(_settingsArea);
+        _lowerArea.Controls.Add(_kindRow);
+        _settingsSplit = BuildSettingsSplit();
         left.Controls.Add(_grid);
-        left.Controls.Add(_kindRow);
-        left.Controls.Add(_settingsArea);
-        left.Resize += (s, e) => FitSettings(false);
+        left.Controls.Add(_settingsSplit);
+        left.Controls.Add(_lowerArea);
+        left.Resize += (s, e) =>
+        {
+            if (left.Width != _lastLeftWidth)
+            {
+                _lastLeftWidth = left.Width;
+                if (!_leftDragging) RefitToLeftWidth();
+            }
+            else
+            {
+                FitSettings(false);
+            }
+        };
 
         Panel right = BuildPreviewPanel();
+        _previewSplit = BuildPreviewSplit();
+        Resize += (s, e) => FitLeftPanel();
 
         Controls.Add(right);
+        Controls.Add(_previewSplit);
         Controls.Add(left);
         Controls.Add(_menu);
         Controls.Add(_statusStrip);
@@ -205,7 +252,7 @@ public sealed partial class MainForm
 
     private Panel BuildPreviewPanel()
     {
-        var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(3, 4, 6, 4) };
+        var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 4, 6, 4) };
 
         _preview = new PreviewControl { Dock = DockStyle.Fill };
         _infoLabel = new Label
@@ -267,7 +314,7 @@ public sealed partial class MainForm
             RowCount = 1,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Dock = DockStyle.Bottom,
+            Dock = DockStyle.Top,
             Padding = new Padding(0, 4, 0, 2)
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -279,11 +326,93 @@ public sealed partial class MainForm
         return row;
     }
 
+    /// <summary>
+    /// Разделитель под таблицей: перетаскиванием таблицу можно сделать выше за счёт настроек (они прокручиваются).
+    /// Двойной щелчок возвращает высоту настроек по самой высокой странице.
+    /// </summary>
+    private SplitBar BuildSettingsSplit()
+    {
+        var bar = new SplitBar { Dock = DockStyle.Bottom };
+        bar.DragStarted += (s, e) => _dragStartHeight = _settingsArea.Height;
+        bar.DragMoved += (s, offset) => SetSettingsHeight(_dragStartHeight - offset);
+        bar.DoubleClick += (s, e) => SetSettingsHeight(int.MaxValue);
+        _tips.SetToolTip(bar, "Перетащите, чтобы изменить высоту таблицы.\nДвойной щелчок — настройки во всю высоту.");
+        return bar;
+    }
+
+    /// <summary>Высота блока настроек от разделителя; не меньше полной высоты страниц — снова по самой высокой странице.</summary>
+    private void SetSettingsHeight(int pixels)
+    {
+        _userSettingsHeight = pixels >= _settingsNeeded ? 0 : Math.Max(MinSettingsHeight, pixels * 96 / DeviceDpi);
+        FitSettings(false);
+    }
+
+    /// <summary>
+    /// Разделитель между левой частью и предпросмотром. Таблица и предпросмотр меняются вслед за ним, а страница
+    /// настроек — когда его отпустят: её перестройка на каждом шаге делала бы перетаскивание рывками.
+    /// Двойной щелчок возвращает ширину по умолчанию.
+    /// </summary>
+    private SplitBar BuildPreviewSplit()
+    {
+        var bar = new SplitBar { Orientation = Orientation.Vertical, Dock = DockStyle.Left };
+        bar.DragStarted += (s, e) =>
+        {
+            _dragStartWidth = _leftPanel.Width;
+            _leftDragging = true;
+            _pageHost.SuspendLayout();
+        };
+        bar.DragMoved += (s, offset) => SetLeftWidth(_dragStartWidth + offset);
+        bar.DragFinished += (s, e) =>
+        {
+            _leftDragging = false;
+            _pageHost.ResumeLayout(true);
+            RefitToLeftWidth();
+        };
+        bar.DoubleClick += (s, e) =>
+        {
+            _userLeftWidth = 0;
+            FitLeftPanel();
+        };
+        _tips.SetToolTip(bar, "Перетащите, чтобы изменить ширину таблицы с настройками и предпросмотра.\nДвойной щелчок — ширина по умолчанию.");
+        return bar;
+    }
+
+    /// <summary>
+    /// Ширина левой части от разделителя. Запоминается та ширина, что получилась в пределах окна:
+    /// при увеличении окна левая часть сама не расширяется, место получает предпросмотр.
+    /// </summary>
+    private void SetLeftWidth(int pixels)
+    {
+        _userLeftWidth = Math.Max(MinLeftWidth, Math.Min(pixels, MaxLeftWidth) * 96 / DeviceDpi);
+        FitLeftPanel();
+    }
+
+    /// <summary>Самая большая ширина левой части, при которой предпросмотру остаётся место.</summary>
+    private int MaxLeftWidth => ClientSize.Width - _previewSplit.Width - MinPreviewWidth * DeviceDpi / 96;
+
+    /// <summary>Ширина левой части — заданная разделителем или по умолчанию, в пределах окна.</summary>
+    private void FitLeftPanel()
+    {
+        if (_leftPanel == null || _previewSplit == null || !IsHandleCreated || WindowState == FormWindowState.Minimized) return;
+        int wanted = (_userLeftWidth > 0 ? _userLeftWidth : LeftPanelWidth) * DeviceDpi / 96;
+        int width = Math.Max(Math.Min(wanted, MaxLeftWidth), MinLeftWidth * DeviceDpi / 96);
+        if (_leftPanel.Width != width) _leftPanel.Width = width;
+    }
+
+    /// <summary>Ширина левой части изменилась: пояснения переносятся заново, высота страниц измеряется заново.</summary>
+    private void RefitToLeftWidth()
+    {
+        if (!IsHandleCreated) return;
+        FitWrapLabels();
+        _settingsNeeded = 0;
+        FitSettings(true);
+    }
+
     // ------------------------------------------------------------------ дерево и страницы
 
     private Control BuildSettingsArea()
     {
-        var area = new Panel { Dock = DockStyle.Bottom, Height = SettingsHeight, Padding = new Padding(0, 2, 0, 0) };
+        var area = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 2, 0, 0) };
 
         _tree = new TreeView
         {
@@ -361,15 +490,54 @@ public sealed partial class MainForm
         int dpi = DeviceDpi;
         _tree.ItemHeight = TextRenderer.MeasureText("Ag", _tree.Font).Height + 8 * dpi / 96;
         foreach (Label label in _captionLabels) label.MinimumSize = new Size(175 * dpi / 96, 0);
-        foreach (Label label in _wrapLabels) label.MaximumSize = new Size(Math.Max(200, _pageHost.ClientSize.Width - 40 * dpi / 96), 0);
+        FitWrapLabels();
     }
 
-    /// <summary>Высота блока настроек — по самой высокой странице; если окно мало, часть высоты остаётся таблице.</summary>
+    /// <summary>Длинные пояснения переносятся по ширине страницы.</summary>
+    private void FitWrapLabels()
+    {
+        int width = Math.Max(200, _pageHost.ClientSize.Width - 40 * DeviceDpi / 96);
+        foreach (Label label in _wrapLabels) label.MaximumSize = new Size(width, 0);
+    }
+
+    /// <summary>
+    /// Если левая часть уже полей текущей страницы настроек, у страницы появляется горизонтальная прокрутка,
+    /// а не обрезанные справа поля. Нужная ширина — по самой широкой строке в разделах страницы.
+    /// </summary>
+    private void FitPageScroll()
+    {
+        if (!_pages.TryGetValue(_currentPage, out Control page)) return;
+        // Нехватка ширины измеряется, когда страница ровно по ширине области.
+        _pageHost.AutoScrollMinSize = Size.Empty;
+        _pageHost.PerformLayout();
+        int lack = 0;
+        foreach (TableLayoutPanel table in VisibleTables(page))
+        {
+            lack = Math.Max(lack, table.GetPreferredSize(Size.Empty).Width - table.Width);
+        }
+        if (lack > 0) _pageHost.AutoScrollMinSize = new Size(page.Width + lack, 0);
+    }
+
+    private static IEnumerable<TableLayoutPanel> VisibleTables(Control parent)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            if (!child.Visible) continue;
+            if (child is TableLayoutPanel table) yield return table;
+            foreach (TableLayoutPanel nested in VisibleTables(child)) yield return nested;
+        }
+    }
+
+    /// <summary>
+    /// Высота блока настроек — по самой высокой странице или заданная разделителем; если окно мало,
+    /// часть высоты остаётся таблице.
+    /// </summary>
     /// <param name="measure">Заново измерить страницы (после смены их состава).</param>
     private void FitSettings(bool measure)
     {
-        if (_settingsArea == null || _leftPanel == null || !IsHandleCreated) return;
+        if (_lowerArea == null || _leftPanel == null || !IsHandleCreated) return;
 
+        if (measure) FitPageScroll();
         if (measure || _settingsNeeded == 0)
         {
             int width = Math.Max(1, _pageHost.ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
@@ -384,10 +552,15 @@ public sealed partial class MainForm
         }
         if (_settingsNeeded == 0) return;
 
-        int minGrid = MinGridHeight * DeviceDpi / 96;
-        int available = _leftPanel.ClientSize.Height - _leftPanel.Padding.Vertical - _kindRow.Height - minGrid;
-        int target = Math.Max(Math.Min(_settingsNeeded, available), 220 * DeviceDpi / 96);
-        if (_settingsArea.Height != target) _settingsArea.Height = target;
+        int dpi = DeviceDpi;
+        int minGrid = MinGridHeight * dpi / 96;
+        int available = _leftPanel.ClientSize.Height - _leftPanel.Padding.Vertical - _settingsSplit.Height - _kindRow.Height - minGrid;
+        // Выше самой высокой страницы блок не делается и разделителем: ниже страниц было бы пустое место.
+        int wanted = _userSettingsHeight > 0 ? Math.Min(_userSettingsHeight * dpi / 96, _settingsNeeded) : _settingsNeeded;
+        int least = (_userSettingsHeight > 0 ? MinSettingsHeight : 220) * dpi / 96;
+        int target = Math.Max(Math.Min(wanted, available), least);
+        int height = _kindRow.Height + target;
+        if (_lowerArea.Height != height) _lowerArea.Height = height;
     }
 
     private static NumberBox Number(int width, double min = double.NegativeInfinity, bool exclusiveMin = false, int decimals = 6) =>

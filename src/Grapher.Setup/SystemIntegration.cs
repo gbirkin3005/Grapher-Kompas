@@ -20,7 +20,7 @@ internal static class LibraryRegistration
     public static void Register(string dllPath, bool allUsers)
     {
         AssemblyName assembly = AssemblyName.GetAssemblyName(dllPath);
-        string codeBase = new Uri(dllPath).AbsoluteUri;
+        string codeBase = CodeBase(dllPath);
         string mscoree = Path.Combine(Environment.SystemDirectory, "mscoree.dll");
 
         void ServerValues(RegistryKey key)
@@ -55,6 +55,14 @@ internal static class LibraryRegistration
         }
     }
 
+    /// <summary>
+    /// Адрес библиотеки в том виде, в каком его записывает RegAsm /codebase: file:///C:/Program Files/…, без экранирования.
+    /// Экранированный адрес (Program%20Files, кириллица в виде %D0%…) .NET при создании COM-объекта не находит:
+    /// КОМПАС не может загрузить библиотеку и не показывает её в списке приложений.
+    /// </summary>
+    internal static string CodeBase(string path) =>
+        path.StartsWith(@"\\", StringComparison.Ordinal) ? "file:" + path.Replace('\\', '/') : "file:///" + path.Replace('\\', '/');
+
     /// <summary>Путь к зарегистрированной библиотеке; null, если регистрации нет.</summary>
     public static string RegisteredPath(bool allUsers)
     {
@@ -62,14 +70,27 @@ internal static class LibraryRegistration
         using (RegistryKey key = root.OpenSubKey(@"Software\Classes\CLSID\" + Product.Clsid + @"\InprocServer32"))
         {
             if (!(key?.GetValue("CodeBase") is string codeBase)) return null;
-            try
-            {
-                return new Uri(codeBase).LocalPath;
-            }
-            catch (UriFormatException)
-            {
-                return null;
-            }
+            return PathFromCodeBase(codeBase);
+        }
+    }
+
+    /// <summary>Путь к файлу по адресу CodeBase; null, если адрес не распознан.</summary>
+    internal static string PathFromCodeBase(string codeBase)
+    {
+        const string local = "file:///";
+        // Адрес без экранирования читается как есть: в пути могут быть «#» и другие знаки, особые для Uri.
+        if (codeBase.StartsWith(local, StringComparison.OrdinalIgnoreCase) && codeBase.IndexOf('%') < 0)
+        {
+            return codeBase.Substring(local.Length).Replace('/', '\\');
+        }
+        // Экранированный адрес записывали мастера версий 1.2.1 и раньше.
+        try
+        {
+            return new Uri(codeBase).LocalPath;
+        }
+        catch (UriFormatException)
+        {
+            return null;
         }
     }
 

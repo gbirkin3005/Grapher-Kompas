@@ -193,6 +193,7 @@ public sealed partial class MainForm
             page.Value.Visible = page.Key == tag.Page;
         }
         _pageHost.ResumeLayout();
+        FitPageScroll();
         _pageHost.AutoScrollPosition = new Point(0, 0);
         _pageTitle.Text = PageTitle(node);
         UpdateEnabledState();

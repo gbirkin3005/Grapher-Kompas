@@ -9,7 +9,7 @@ using Newtonsoft.Json.Linq;
 namespace Grapher.UI;
 
 /// <summary>
-/// Последние настройки пользователя: оформление графика, папка, положение окна.
+/// Последние настройки пользователя: оформление графика, папка, положение окна и его разделителей.
 /// Хранятся в %AppData%\Grapher\settings.json.
 /// </summary>
 public sealed class AppSettings
@@ -23,6 +23,12 @@ public sealed class AppSettings
     public Rectangle WindowBounds { get; set; }
 
     public bool WindowMaximized { get; set; }
+
+    /// <summary>Высота блока настроек под таблицей, заданная разделителем, при 100 % масштабе экрана; 0 — автоматически.</summary>
+    public int SettingsHeight { get; set; }
+
+    /// <summary>Ширина левой части окна (таблица и настройки), заданная разделителем, при 100 % масштабе экрана; 0 — по умолчанию.</summary>
+    public int LeftPanelWidth { get; set; }
 
     public static string FilePath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Grapher", "settings.json");
@@ -44,6 +50,8 @@ public sealed class AppSettings
             JObject root = JObject.Parse(File.ReadAllText(path));
             settings.LastDirectory = (string)root["LastDirectory"];
             settings.WindowMaximized = (bool?)root["WindowMaximized"] ?? false;
+            settings.SettingsHeight = Math.Max(0, (int?)root["SettingsHeight"] ?? 0);
+            settings.LeftPanelWidth = Math.Max(0, (int?)root["LeftPanelWidth"] ?? 0);
 
             if (root["Window"] is JArray w && w.Count == 4)
             {
@@ -71,7 +79,9 @@ public sealed class AppSettings
             {
                 ["LastDirectory"] = LastDirectory,
                 ["WindowMaximized"] = WindowMaximized,
-                ["Window"] = new JArray(WindowBounds.X, WindowBounds.Y, WindowBounds.Width, WindowBounds.Height)
+                ["Window"] = new JArray(WindowBounds.X, WindowBounds.Y, WindowBounds.Width, WindowBounds.Height),
+                ["SettingsHeight"] = SettingsHeight,
+                ["LeftPanelWidth"] = LeftPanelWidth
             };
             if (Project != null)
             {

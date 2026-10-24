@@ -49,6 +49,8 @@ public sealed partial class MainForm : Form
         _hostSession = hostSession;
         _session = hostSession;
         _settings = AppSettings.Load();
+        _userSettingsHeight = _settings.SettingsHeight;
+        _userLeftWidth = _settings.LeftPanelWidth;
 
         BuildLayout();
         WireEvents();
@@ -113,6 +115,7 @@ public sealed partial class MainForm : Form
         _grid.RowHeadersWidth = TextRenderer.MeasureText("000000", Font).Width + 8;
         _grid.RebuildColumns();
         ScaleSettingsLayout();
+        FitLeftPanel();
         FitSettings(true);
         UpdatePreview();
         RefreshKompasStatus();
@@ -150,6 +153,8 @@ public sealed partial class MainForm : Form
         _settings.Project = _project;
         _settings.WindowMaximized = WindowState == FormWindowState.Maximized;
         _settings.WindowBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        _settings.SettingsHeight = _userSettingsHeight;
+        _settings.LeftPanelWidth = _userLeftWidth;
         _settings.Save();
     }
 

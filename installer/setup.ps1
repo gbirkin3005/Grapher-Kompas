@@ -87,7 +87,10 @@ function Read-Manifest([string]$dir) {
 function Get-RegisteredLibrary {
     $server = Get-ItemProperty -LiteralPath "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32" -ErrorAction SilentlyContinue
     if (-not $server -or -not $server.CodeBase) { return $null }
-    return ([Uri]$server.CodeBase).LocalPath
+    $codeBase = $server.CodeBase
+    # Адрес без экранирования (file:///C:/Program Files/…) читается как есть, прежний экранированный — через Uri.
+    if ($codeBase.StartsWith('file:///') -and -not $codeBase.Contains('%')) { return $codeBase.Substring(8).Replace('/', '\') }
+    return ([Uri]$codeBase).LocalPath
 }
 
 function New-Shortcut([string]$path, [string]$exe) {
