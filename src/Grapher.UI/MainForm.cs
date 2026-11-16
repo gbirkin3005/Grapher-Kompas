@@ -651,22 +651,52 @@ public sealed partial class MainForm : Form
         return _session;
     }
 
-    /// <summary>Проверяет, что в КОМПАС открыт чертёж или фрагмент; иначе предлагает создать документ.</summary>
+    /// <summary>
+    /// Проверяет, что в КОМПАС открыт чертёж или фрагмент; иначе предлагает открыть документ,
+    /// создать новый (чертёж или фрагмент) или не строить график.
+    /// </summary>
     private bool EnsureDocument(KompasSession session)
     {
-        ActiveDocumentKind kind = session.GetActiveDocumentKind();
-        if (kind == ActiveDocumentKind.Drawing || kind == ActiveDocumentKind.Fragment) return true;
+        while (true)
+        {
+            ActiveDocumentKind kind = session.GetActiveDocumentKind();
+            if (kind == ActiveDocumentKind.Drawing || kind == ActiveDocumentKind.Fragment) return true;
 
-        string reason = kind == ActiveDocumentKind.None
-            ? "В КОМПАС нет открытого документа."
-            : "Активный документ КОМПАС — не чертёж и не фрагмент (график строится только в 2D-документе).";
-        DialogResult answer = MessageBox.Show(this,
-            reason + "\n\nСоздать новый документ?\n\n«Да» — чертёж,  «Нет» — фрагмент,  «Отмена» — не строить.",
-            AppTitle, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
-        if (answer == DialogResult.Cancel) return false;
+            string reason = kind == ActiveDocumentKind.None
+                ? "В КОМПАС нет открытого документа."
+                : "Активный документ КОМПАС — не чертёж и не фрагмент (график строится только в 2D-документе).";
+            int pick = ActionDialog.Show(this,
+                reason + "\n\nОткрыть документ, создать новый или не строить график?",
+                "Открыть", "Создать", "Отмена");
+            if (pick == 2) return false;
 
-        session.CreateDocument(answer == DialogResult.No);
-        return true;
+            if (pick == 0)
+            {
+                using (var dialog = new OpenFileDialog())
+                {
+                    dialog.Title = "Открыть документ КОМПАС-3D";
+                    dialog.Filter = "Документы КОМПАС-3D (*.cdw;*.frw;*.m3d;*.a3d)|*.cdw;*.frw;*.m3d;*.a3d|Все файлы (*.*)|*.*";
+                    if (dialog.ShowDialog(this) != DialogResult.OK) continue; // от выбора файла отказались — спросим снова
+                    if (!session.OpenDocument(dialog.FileName)) continue;     // не открылся — спросим снова
+                }
+            }
+            else
+            {
+                int create = ActionDialog.Show(this, "Какой документ создать?", "Чертёж", "Фрагмент", "Отмена");
+                if (create == 2) return false;
+                session.CreateDocument(create == 1);
+            }
+
+            kind = session.GetActiveDocumentKind();
+            if (kind == ActiveDocumentKind.Drawing || kind == ActiveDocumentKind.Fragment) return true;
+            if (kind == ActiveDocumentKind.Other)
+            {
+                MessageBox.Show(this, "Открытый документ — не чертёж и не фрагмент. График строится только в 2D-документе.",
+                    AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return false;
+            }
+            // Документ так и не появился: повторим вопрос.
+        }
     }
 
     private void ReportKompasError(KompasException ex)

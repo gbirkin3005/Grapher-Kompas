@@ -583,7 +583,20 @@ public sealed partial class MainForm
         Anchor = AnchorStyles.Left
     };
 
+    /// <summary>Порог порядка для экспоненциальной формы (как «Экспоненциальный 3» в Mathcad).</summary>
+    private static NumericUpDown Threshold() => new NumericUpDown
+    {
+        Minimum = 0,
+        Maximum = 15,
+        Value = 3,
+        Width = 46,
+        Anchor = AnchorStyles.Left
+    };
+
     private static ComboBox DecimalsCombo() => Ui.Combo(64, "авто", "0", "1", "2", "3", "4", "5", "6");
+
+    /// <summary>Форма записи чисел: общая (по порогу), десятичная или научная.</summary>
+    private static ComboBox NumberFormatCombo() => Ui.Combo(170, "Общий", "Десятичный", "Научный");
 
     private static RadioButton Radio(string text) => new RadioButton { Text = text, AutoSize = true, Margin = new Padding(3, 5, 12, 3) };
 

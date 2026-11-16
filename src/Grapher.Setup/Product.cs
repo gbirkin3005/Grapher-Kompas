@@ -18,6 +18,9 @@ internal static class Product
     /// <summary>Страница программы: исходный код, выпуски и инструкции.</summary>
     public const string RepositoryUrl = "https://github.com/gbirkin3005/Grapher-Kompas";
 
+    /// <summary>Страница загрузки .NET Framework 4.8 — среда, без которой программа не работает.</summary>
+    public const string DotNetDownloadUrl = "https://dotnet.microsoft.com/download/dotnet-framework/net48";
+
     /// <summary>Автор (владелец репозитория) — в списке программ Windows это «Издатель».</summary>
     public const string Publisher = "gbirkin3005";
 
@@ -37,6 +40,20 @@ internal static class Product
         {
             Version version = Assembly.GetExecutingAssembly().GetName().Version;
             return version.ToString(3);
+        }
+    }
+
+    /// <summary>
+    /// .NET Framework 4.8 или новее уже есть в системе. Значение Release в реестре:
+    /// 528040 — .NET Framework 4.8 (такая же проверка у прежнего установщика setup.ps1).
+    /// Мастер собран на net48, поэтому без 4.8 он вообще не запустится; проверка нужна
+    /// для старых систем с .NET 4.6–4.7, где окно мастера ещё открывается.
+    /// </summary>
+    public static bool HasDotNet48()
+    {
+        using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"))
+        {
+            return key?.GetValue("Release") is int release && release >= 528040;
         }
     }
 

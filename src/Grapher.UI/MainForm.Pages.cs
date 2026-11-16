@@ -26,10 +26,11 @@ public sealed partial class MainForm
     private RadioButton _axLinear, _axLog;
     private NumberBox _axMin, _axMax, _axStep, _axScale;
     private CheckBox _axAuto, _axAlign, _axPi;
-    private NumericUpDown _axEvery;
+    private NumericUpDown _axEvery, _axExpThreshold;
     private Label _axStepUnit;
     private Button _axRemove;
     private Field _fAxSide, _fAxAlign, _fAxStep, _fAxScale;
+    private ComboBox _axNumberFormat;
 
     // Угловая шкала полярной диаграммы
     private ComboBox _polarUnit, _polarZeroPreset, _polarRange, _polarDegree;
@@ -41,8 +42,9 @@ public sealed partial class MainForm
     private NumberBox _radMin, _radMax, _radStep;
     private CheckBox _radAuto;
     private NumericUpDown _radEvery;
-    private ComboBox _radDecimals, _radRay, _radSide;
+    private ComboBox _radDecimals, _radRay, _radSide, _radNumberFormat;
     private Label _radStepUnit;
+    private NumericUpDown _radExpThreshold;
 
     // Треугольная диаграмма
     private TextBox _ternA, _ternB, _ternC, _ternUnit;
@@ -52,18 +54,19 @@ public sealed partial class MainForm
     // «Кривые» и кривая
     private Button _curvesAdd, _curveAdd, _curveRemove, _curveColorReset;
     private TextBox _curveName, _curveLabelText;
-    private CheckBox _curveVisible, _curveLabelOn, _curveLabelAuto;
-    private ComboBox _curveAxis, _curveMode, _curveMarker, _curveMarkerPlacement, _curveLabelDir;
+    private CheckBox _curveVisible, _curveLabelOn, _curveLabelAuto, _curvePointLabels;
+    private ComboBox _curveAxis, _curveMode, _curveMarker, _curveMarkerPlacement, _curveLabelDir, _curvePointLabelFormat, _curvePointLabelFont;
     private LineStyleComboBox _curveStyle;
     private ColorSwatchButton _curveColor;
     private NumberBox _curveMarkerSize, _curveLabelPos;
-    private NumericUpDown _curveMarkerEvery;
+    private FontSizeComboBox _curvePointLabelHeight;
+    private NumericUpDown _curveMarkerEvery, _curvePointLabelEvery, _curvePointLabelThreshold;
     private Field _fCurveAxis;
 
     // «Оформление»
     private ComboBox _titlePlacement, _units, _decimalSeparator, _fontName;
     private CheckBox _separateArrows, _nativeArrows, _labelsOn, _italic, _scaleFactors, _breakGrid, _dashedJumps, _smoothPeriodic, _legendOn;
-    private NumberBox _labelHeight, _titleHeight;
+    private FontSizeComboBox _labelHeight, _titleHeight;
     private Field _fTitlePlacement, _fNativeArrows;
 
     // «Размещение»
@@ -164,10 +167,14 @@ public sealed partial class MainForm
         _axEvery = Every();
         _axDecimals = DecimalsCombo();
         _axPi = Ui.Check("в долях π (угол в радианах): π/6, π/2, 2π");
+        _axNumberFormat = NumberFormatCombo();
+        _axExpThreshold = Threshold();
         _fAxStep = numbers.Add("Шаг сетки", _axStep, _axStepUnit);
         numbers.Add("Подписывать каждую", _axEvery, Ui.Label("-ю линию сетки"));
         numbers.Add("Знаков после запятой", _axDecimals);
         numbers.Add("Числа", _axPi);
+        numbers.Add("Формат чисел", _axNumberFormat);
+        numbers.Add("Экспоненциальный при порядке >", _axExpThreshold);
         AddSection(page, "Числа и сетка", numbers);
 
         _axRemove = Ui.Button("Удалить эту шкалу");
@@ -222,10 +229,14 @@ public sealed partial class MainForm
         _radStepUnit = Ui.Hint("");
         _radEvery = Every();
         _radDecimals = DecimalsCombo();
+        _radNumberFormat = NumberFormatCombo();
+        _radExpThreshold = Threshold();
         limits.Add("Пределы радиуса", LimitsBlock(_radMin, _radMax, _radAuto));
         limits.Add("Шаг окружностей", _radStep, _radStepUnit);
         limits.Add("Подписывать каждую", _radEvery, Ui.Label("-ю окружность"));
         limits.Add("Знаков после запятой", _radDecimals);
+        limits.Add("Формат чисел", _radNumberFormat);
+        limits.Add("Экспоненциальный при порядке >", _radExpThreshold);
         AddSection(page, "Пределы и сетка", limits);
 
         var place = new FormBuilder();
@@ -314,6 +325,31 @@ public sealed partial class MainForm
         _tips.SetToolTip(_curveMarker, "Фигуры рисуются отрезками и окружностями; «точка КОМПАС» — объект «Точка» КОМПАС.");
         _tips.SetToolTip(_curveMarkerPlacement, "Характерные точки — концы кривой, экстремумы и пересечения с нулём (Р 50-77-88, п. 3.9).");
 
+        var pointLabels = new FormBuilder();
+        _curvePointLabels = Ui.Check("подписывать значения точек");
+        _curvePointLabelEvery = Every();
+        _curvePointLabelFormat = NumberFormatCombo();
+        _curvePointLabelThreshold = Threshold();
+        _curvePointLabelFont = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 170, Anchor = AnchorStyles.Left };
+        foreach (string fontName in Grapher.Core.Model.DrawingFonts.All)
+        {
+            if (PreviewRenderer.IsFontInstalled(fontName)) _curvePointLabelFont.Items.Add(fontName);
+        }
+        _curvePointLabelHeight = new FontSizeComboBox { Width = 56, Anchor = AnchorStyles.Left };
+        pointLabels.Add("", _curvePointLabels);
+        pointLabels.Add("Ставить подпись каждой", _curvePointLabelEvery, Ui.Label("-й точке"));
+        pointLabels.Add("Формат чисел", _curvePointLabelFormat);
+        pointLabels.Add("Экспоненциальный при порядке >", _curvePointLabelThreshold);
+        pointLabels.Add("Шрифт", _curvePointLabelFont);
+        pointLabels.Add("Высота шрифта, мм", _curvePointLabelHeight);
+        AddSection(page, "Значения у точек", pointLabels);
+        _tips.SetToolTip(_curvePointLabels, "Число над каждой точкой кривой — значение Y: «1,875», «0,5». " +
+                                            "Подпись ставится над точкой; если места нет, она пропускается.");
+        _tips.SetToolTip(_curvePointLabelFormat, "Общий — обычный вид, пока порядок числа по модулю не превысит порог; " +
+                                                 "научный — всегда мантисса и степень: 2·10^6, 1,5·10^-4 (верхний индекс).");
+        _tips.SetToolTip(_curvePointLabelFont, "Пусто — шрифт чисел шкал (страница «Оформление»).");
+        _tips.SetToolTip(_curvePointLabelHeight, "0 — высота чисел шкал (страница «Оформление»).");
+
         var label = new FormBuilder();
         _curveLabelOn = Ui.Check("подписать кривую на полке линии-выноски");
         _curveLabelText = TextField(170);
@@ -358,8 +394,8 @@ public sealed partial class MainForm
             if (PreviewRenderer.IsFontInstalled(fontName)) _fontName.Items.Add(fontName);
         }
         _italic = Ui.Check("наклонный");
-        _labelHeight = Number(48, 0, true, 2);
-        _titleHeight = Number(48, 0, true, 2);
+        _labelHeight = new FontSizeComboBox { Width = 56, Anchor = AnchorStyles.Left };
+        _titleHeight = new FontSizeComboBox { Width = 56, Anchor = AnchorStyles.Left };
         _labelsOn = Ui.Check("подписывать числа у шкал");
         _decimalSeparator = Ui.Combo(96, "запятая", "точка");
         font.Add("Шрифт", _fontName, _italic);

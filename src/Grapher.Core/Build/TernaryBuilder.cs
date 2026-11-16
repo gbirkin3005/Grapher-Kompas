@@ -219,6 +219,7 @@ internal static class TernaryBuilder
 
         // 6. Кривые.
         var built = new List<BuiltCurve>();
+        var placedLabels = new List<RectD>();
         double tolerance = total * 1e-9;
         foreach (SeriesPoints series in c.Data.Series)
         {
@@ -230,6 +231,7 @@ internal static class TernaryBuilder
             built.Add(info);
 
             var mapped = new List<Pt>(series.Points.Count);
+            var source = new List<Pt>(series.Points.Count);
             int outside = 0, firstOutsideRow = 0;
             for (int i = 0; i < series.Points.Count; i++)
             {
@@ -240,6 +242,7 @@ internal static class TernaryBuilder
                     continue;
                 }
                 mapped.Add(Map(p.X, p.Y));
+                source.Add(p);
             }
             if (outside > 0)
             {
@@ -277,6 +280,9 @@ internal static class TernaryBuilder
                     SceneTools.Marker(scene, curve.Marker, mapped[i], curve.MarkerSizeMm, PrimitiveRole.Marker, color);
                 }
             }
+
+            double lift = curve.Marker != MarkerShape.None && curve.MarkerSizeMm > 0 ? curve.MarkerSizeMm / 2 : 0;
+            PointLabels.Place(c, curve, source, mapped, lift, placedLabels, c.Scene.PlotRect, Inside);
         }
 
         bool InsideTriangle(Pt p) =>

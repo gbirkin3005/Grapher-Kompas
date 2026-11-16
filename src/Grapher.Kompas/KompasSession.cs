@@ -172,8 +172,10 @@ public sealed class KompasSession
             _api7.GetSystemVersion(out int _, out int _, out int _, out int _);
             return true;
         }
-        catch (Exception ex) when (ex is COMException || ex is InvalidComObjectException)
+        catch (Exception)
         {
+            // Для проверки «жив ли сервер» любой сбой вызова — ответ «нет»:
+            // умерший COM-сервер (КОМПАС закрыт) даёт InvalidCastException, COMException и т. п.
             return false;
         }
     }
@@ -216,6 +218,14 @@ public sealed class KompasSession
         {
             throw new KompasException(KompasErrorKind.ApiError, "КОМПАС не смог создать новый документ.");
         }
+    });
+
+    /// <summary>Открывает документ КОМПАС по пути и делает его активным.</summary>
+    /// <returns>false, если КОМПАС не смог открыть файл.</returns>
+    public bool OpenDocument(string path) => Guard(() =>
+    {
+        IKompasDocument document = _api7.Documents.Open(path, true, false);
+        return document != null;
     });
 
     /// <summary>
@@ -360,6 +370,13 @@ public sealed class KompasSession
         }
         catch (InvalidComObjectException ex)
         {
+            throw new KompasException(KompasErrorKind.ConnectionLost,
+                "Связь с КОМПАС-3D потеряна. Запустите КОМПАС и повторите построение.", ex);
+        }
+        catch (InvalidCastException ex)
+        {
+            // Умерший COM-сервер (КОМПАС закрыт) даёт E_NOINTERFACE в виде InvalidCastException,
+            // а не привычный COMException — для остального кода это то же «нет связи».
             throw new KompasException(KompasErrorKind.ConnectionLost,
                 "Связь с КОМПАС-3D потеряна. Запустите КОМПАС и повторите построение.", ex);
         }

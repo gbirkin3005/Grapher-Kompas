@@ -21,6 +21,8 @@ public enum PrimitiveRole
     Leader,
     /// <summary>Подпись кривой на поле диаграммы.</summary>
     CurveLabel,
+    /// <summary>Подпись значения у точки кривой.</summary>
+    PointLabel,
     /// <summary>Единица измерения у шкалы.</summary>
     Unit,
     /// <summary>Пояснительная надпись (масштаб шкалы).</summary>

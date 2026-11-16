@@ -594,23 +594,83 @@ internal static class Elevation
     }
 
     /// <summary>Запускает этот же файл с правами администратора (окно UAC).</summary>
-    /// <returns>Процесс; null, если пользователь отказался в окне UAC.</returns>
-    public static Process Start(string arguments)
+    /// <returns>Дескриптор процесса для ожидания (см. <see cref="WaitForExit"/>); IntPtr.Zero, если пользователь отказался в окне UAC.</returns>
+    public static IntPtr Start(string arguments)
     {
-        var info = new ProcessStartInfo(Product.SelfPath, arguments)
+        // ShellExecuteEx с SEE_MASK_NOCLOSEPROCESS: вернуться должен процесс с дескриптором,
+        // иначе WaitForExit/ExitCode бросают «Нет процессов, связанных с этим объектом»
+        // (при UseShellExecute = true дескриптор у Process не появляется).
+        var info = new ShellExecuteInfo
         {
-            UseShellExecute = true,
-            Verb = "runas"
+            cbSize = Marshal.SizeOf<ShellExecuteInfo>(),
+            fMask = SeeMaskNoCloseProcess,
+            lpVerb = "runas",
+            lpFile = Product.SelfPath,
+            lpParameters = arguments,
+            nShow = 0 // повышенная копия работает без окна (/silent)
         };
-        try
+        if (!ShellExecuteEx(ref info))
         {
-            return Process.Start(info);
+            int error = Marshal.GetLastWin32Error();
+            if (error == 1223) return IntPtr.Zero; // пользователь отказался в окне UAC
+            throw new InvalidOperationException(
+                "Не удалось запустить установку с правами администратора (код ошибки Windows " + error + ").");
         }
-        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
-        {
-            return null;
-        }
+        return info.hProcess;
     }
+
+    /// <summary>
+    /// Дождаться завершения процесса по дескриптору и забрать его код выхода.
+    /// Дескриптор жить после завершения процесса, поэтому работает при любом раскладе —
+    /// даже если процесс завершился сразу после запуска.
+    /// </summary>
+    public static int WaitForExit(IntPtr processHandle)
+    {
+        WaitForSingleObject(processHandle, 0xFFFFFFFF); // INFINITE
+        uint code;
+        if (!GetExitCodeProcess(processHandle, out code))
+        {
+            int error = Marshal.GetLastWin32Error();
+            CloseHandle(processHandle);
+            throw new Win32Exception(error);
+        }
+        CloseHandle(processHandle);
+        return (int)code;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetExitCodeProcess(IntPtr handle, out uint exitCode);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct ShellExecuteInfo
+    {
+        public int cbSize;
+        public uint fMask;
+        public IntPtr hwnd;
+        [MarshalAs(UnmanagedType.LPWStr)] public string lpVerb;
+        [MarshalAs(UnmanagedType.LPWStr)] public string lpFile;
+        [MarshalAs(UnmanagedType.LPWStr)] public string lpParameters;
+        [MarshalAs(UnmanagedType.LPWStr)] public string lpDirectory;
+        public int nShow;
+        public IntPtr hInstApp;
+        public IntPtr lpIDList;
+        [MarshalAs(UnmanagedType.LPWStr)] public string lpClass;
+        public IntPtr hKeyClass;
+        public uint dwHotKey;
+        public IntPtr hIcon;
+        public IntPtr hProcess;
+    }
+
+    private const uint SeeMaskNoCloseProcess = 0x40;
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool ShellExecuteEx(ref ShellExecuteInfo info);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
 
     private const int BcmSetShield = 0x160C;
 

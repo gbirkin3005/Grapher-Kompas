@@ -83,6 +83,27 @@ public enum CurveLabelMode
     Leader
 }
 
+/// <summary>Подписи значений у точек кривой.</summary>
+public enum PointLabelMode
+{
+    /// <summary>Без подписей.</summary>
+    None,
+    /// <summary>Значение Y точки над ней (как «1,875», «0,5»).</summary>
+    Value
+}
+
+/// <summary>Форма записи чисел в подписях (значения у точек, числа шкал).</summary>
+public enum NumberDisplayFormat
+{
+    /// <summary>Общие: обычный вид, пока порядок числа по модулю не превысил порог;
+    /// дальше экспоненциальный (как «Экспоненциальный 3» в Mathcad).</summary>
+    Auto,
+    /// <summary>Десятичный: всегда обычный вид, без степени.</summary>
+    Decimal,
+    /// <summary>Научный: всегда экспоненциальный (2·10^6).</summary>
+    Scientific
+}
+
 /// <summary>Куда отведена линия-выноска от кривой.</summary>
 public enum LabelDirection
 {
@@ -215,6 +236,28 @@ public sealed class CurveSettings
 
     public LabelDirection LabelDirection { get; set; } = LabelDirection.Auto;
 
+    /// <summary>Подписи значений у точек кривой.</summary>
+    public PointLabelMode PointLabels { get; set; } = PointLabelMode.None;
+
+    /// <summary>Ставить подпись на каждой N-й точке.</summary>
+    public int PointLabelEvery { get; set; } = 1;
+
+    /// <summary>Форма записи чисел в подписях значений у точек.</summary>
+    public NumberDisplayFormat PointLabelFormat { get; set; } = NumberDisplayFormat.Auto;
+
+    /// <summary>
+    /// Порог порядка для авто-формата (как «Экспоненциальный 3» в Mathcad):
+    /// число пишется в экспоненциальной форме, если его порядок (показатель степени
+    /// в записи вида 2·10^6) по модулю больше порога.
+    /// </summary>
+    public int PointLabelExpThreshold { get; set; } = 3;
+
+    /// <summary>Шрифт подписей значений у точек; пусто — тот же, что у чисел шкал.</summary>
+    public string PointLabelFont { get; set; } = DrawingFonts.Default;
+
+    /// <summary>Высота шрифта подписей значений, мм; 0 — как у чисел шкал.</summary>
+    public double PointLabelHeightMm { get; set; } = 3.5;
+
     public bool Visible { get; set; } = true;
 
     public CurveSettings Clone() => (CurveSettings)MemberwiseClone();
@@ -253,6 +296,15 @@ public sealed class AxisSettings
 
     /// <summary>Число знаков после запятой в подписях; −1 — подобрать автоматически.</summary>
     public int Decimals { get; set; } = -1;
+
+    /// <summary>Форма записи чисел шкалы.</summary>
+    public NumberDisplayFormat NumberFormat { get; set; } = NumberDisplayFormat.Auto;
+
+    /// <summary>
+    /// Порог порядка для авто-формата (как «Экспоненциальный 3» в Mathcad):
+    /// число пишется в экспоненциальной форме, если его порядок по модулю больше порога.
+    /// </summary>
+    public int ExpThreshold { get; set; } = 3;
 
     public NumberStyle Numbers { get; set; } = NumberStyle.Decimal;
 

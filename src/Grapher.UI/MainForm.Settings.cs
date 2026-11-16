@@ -268,14 +268,17 @@ public sealed partial class MainForm
         foreach (NumberBox box in new[]
                  {
                      _angle, _axisExtension, _tickLength, _arrowLength, _polarZero, _polarStep, _radMin, _radMax, _radStep,
-                     _ternTotal, _ternStep, _labelHeight, _titleHeight, _placeX, _placeY, _decimateThreshold, _decimateTolerance
+                     _ternTotal, _ternStep, _placeX, _placeY, _decimateThreshold, _decimateTolerance
                  })
         {
             box.ValueChanged += changed;
         }
+        _labelHeight.ValueChanged += changed;
+        _titleHeight.ValueChanged += changed;
         foreach (ComboBox box in new[]
                  {
-                     _crossing, _polarUnit, _polarRange, _polarDegree, _radDecimals, _radSide, _titlePlacement, _units, _decimalSeparator
+                     _crossing, _polarUnit, _polarRange, _polarDegree, _radDecimals, _radSide, _radNumberFormat,
+                     _titlePlacement, _units, _decimalSeparator
                  })
         {
             box.SelectedIndexChanged += changed;
@@ -287,6 +290,7 @@ public sealed partial class MainForm
         _fontName.TextChanged += changed;
         _radRay.TextChanged += changed;
         _radEvery.ValueChanged += changed;
+        _radExpThreshold.ValueChanged += changed;
         _ternEvery.ValueChanged += changed;
         _radTitle.TextChanged += (s, e) => UpdateTreeTexts();
         _gridMode.SelectedIndexChanged += (s, e) => OnGridModeChanged();
@@ -305,11 +309,12 @@ public sealed partial class MainForm
         // Шкала прямоугольной диаграммы.
         EventHandler axisChanged = (s, e) => OnAxisPageChanged();
         foreach (TextBox box in new[] { _axTitle, _axUnit }) box.TextChanged += axisChanged;
-        foreach (ComboBox box in new[] { _axSide, _axDecimals }) box.SelectedIndexChanged += axisChanged;
+        foreach (ComboBox box in new[] { _axSide, _axDecimals, _axNumberFormat }) box.SelectedIndexChanged += axisChanged;
         foreach (CheckBox box in new[] { _axAuto, _axAlign, _axPi }) box.CheckedChanged += axisChanged;
         foreach (NumberBox box in new[] { _axMin, _axMax, _axStep }) box.ValueChanged += axisChanged;
         _axLog.CheckedChanged += axisChanged;
         _axEvery.ValueChanged += axisChanged;
+        _axExpThreshold.ValueChanged += axisChanged;
         _scalesAdd.Click += (s, e) => AddExtra();
         _axRemove.Click += (s, e) => RemoveExtra();
 
@@ -319,12 +324,16 @@ public sealed partial class MainForm
         _curveRemove.Click += (s, e) => RemoveCurve();
         EventHandler curveChanged = (s, e) => OnCurveSettingChanged();
         foreach (TextBox box in new[] { _curveName, _curveLabelText }) box.TextChanged += curveChanged;
-        foreach (CheckBox box in new[] { _curveVisible, _curveLabelOn, _curveLabelAuto }) box.CheckedChanged += curveChanged;
-        foreach (ComboBox box in new[] { _curveAxis, _curveMode, _curveMarker, _curveMarkerPlacement, _curveLabelDir }) box.SelectedIndexChanged += curveChanged;
+        foreach (CheckBox box in new[] { _curveVisible, _curveLabelOn, _curveLabelAuto, _curvePointLabels }) box.CheckedChanged += curveChanged;
+        foreach (ComboBox box in new[] { _curveAxis, _curveMode, _curveMarker, _curveMarkerPlacement, _curveLabelDir, _curvePointLabelFormat, _curvePointLabelFont }) box.SelectedIndexChanged += curveChanged;
         _curveStyle.SelectedIndexChanged += curveChanged;
         _curveMarkerSize.ValueChanged += curveChanged;
         _curveLabelPos.ValueChanged += curveChanged;
         _curveMarkerEvery.ValueChanged += curveChanged;
+        _curvePointLabelEvery.ValueChanged += curveChanged;
+        _curvePointLabelThreshold.ValueChanged += curveChanged;
+        _curvePointLabelHeight.ValueChanged += curveChanged;
+        _curvePointLabelFont.TextChanged += curveChanged;
         _curveColor.Click += (s, e) => ChooseCurveColor();
         _curveColorReset.Click += (s, e) => SetCurveColor(null);
     }
@@ -387,6 +396,8 @@ public sealed partial class MainForm
             _radStep.SetValue(radial.GridStep);
             _radEvery.Value = Math.Max(1, Math.Min(100, radial.LabelEvery));
             _radDecimals.SelectedIndex = Math.Max(0, Math.Min(7, radial.Decimals + 1));
+            _radNumberFormat.SelectedIndex = Math.Max(0, Math.Min(2, (int)radial.NumberFormat));
+            _radExpThreshold.Value = Math.Max(0, Math.Min(15, radial.ExpThreshold));
             FillRayList();
             _radRay.Text = NumberFormatter.ForInput(polar.LabelRayDeg, 3);
             _radSide.SelectedIndex = polar.LabelSide == RadialLabelSide.Left ? 1 : 0;
@@ -482,6 +493,8 @@ public sealed partial class MainForm
             if (g.GridMode != GridStepMode.Auto) radial.GridStep = _radStep.Value;
             radial.LabelEvery = (int)_radEvery.Value;
             radial.Decimals = _radDecimals.SelectedIndex - 1;
+            radial.NumberFormat = (NumberDisplayFormat)Math.Max(0, Math.Min(2, _radNumberFormat.SelectedIndex));
+            radial.ExpThreshold = (int)_radExpThreshold.Value;
         }
         if (kind == DiagramKind.Ternary)
         {
@@ -537,6 +550,8 @@ public sealed partial class MainForm
         _axAlign.Enabled = extra && _axAuto.Checked && !log;
         _axStep.Enabled = !autoStep && !log;
         _axDecimals.Enabled = _axPi.Enabled = !log && _labelsOn.Checked;
+        _axNumberFormat.Enabled = !log;
+        _axExpThreshold.Enabled = !log && _axNumberFormat.SelectedIndex == 0;
         _axScale.Enabled = !extra;
         _axRemove.Visible = extra;
         _scalesAdd.Visible = cartesian;
@@ -545,6 +560,7 @@ public sealed partial class MainForm
         _radMin.Enabled = _radMax.Enabled = !_radAuto.Checked;
         _radStep.Enabled = !autoStep;
         _polarZero.Enabled = _polarZeroPreset.SelectedIndex == 4;
+        _radExpThreshold.Enabled = _radNumberFormat.SelectedIndex == 0;
 
         // Оформление
         _separateArrows.Enabled = cartesian && _titlePlacement.SelectedIndex == 1;
@@ -565,6 +581,10 @@ public sealed partial class MainForm
         _curveAxis.Enabled = cartesian && _project.ExtraAxes.Count > 0;
         _curveLabelText.Enabled = _curveLabelAuto.Enabled = _curveLabelDir.Enabled = _curveLabelOn.Checked;
         _curveLabelPos.Enabled = _curveLabelOn.Checked && !_curveLabelAuto.Checked;
+        _curvePointLabelEvery.Enabled = _curvePointLabels.Checked;
+        _curvePointLabelFormat.Enabled = _curvePointLabels.Checked;
+        _curvePointLabelThreshold.Enabled = _curvePointLabels.Checked && _curvePointLabelFormat.SelectedIndex == 0;
+        _curvePointLabelFont.Enabled = _curvePointLabelHeight.Enabled = _curvePointLabels.Checked;
     }
 
     private static string InsertionPointName(DiagramKind kind)
@@ -714,6 +734,8 @@ public sealed partial class MainForm
             _axEvery.Value = Math.Max(1, Math.Min(100, axis.LabelEvery));
             _axDecimals.SelectedIndex = Math.Max(0, Math.Min(7, axis.Decimals + 1));
             _axPi.Checked = axis.Numbers == NumberStyle.PiFractions;
+            _axNumberFormat.SelectedIndex = Math.Max(0, Math.Min(2, (int)axis.NumberFormat));
+            _axExpThreshold.Value = Math.Max(0, Math.Min(15, axis.ExpThreshold));
 
             _fAxSide.Visible = extra;
             _fAxAlign.Visible = extra;
@@ -752,6 +774,8 @@ public sealed partial class MainForm
         axis.LabelEvery = (int)_axEvery.Value;
         axis.Decimals = _axDecimals.SelectedIndex - 1;
         axis.Numbers = _axPi.Checked ? NumberStyle.PiFractions : NumberStyle.Decimal;
+        axis.NumberFormat = (NumberDisplayFormat)Math.Max(0, Math.Min(2, _axNumberFormat.SelectedIndex));
+        axis.ExpThreshold = (int)_axExpThreshold.Value;
 
         _fAxScale.Text = axis.Logarithmic ? "Масштаб, мм на декаду" : "Масштаб, мм на единицу";
         UpdateTreeTexts();
@@ -920,6 +944,12 @@ public sealed partial class MainForm
             _curveLabelAuto.Checked = curve.LabelPosition < 0;
             _curveLabelPos.SetValue(curve.LabelPosition < 0 ? 50 : Math.Min(100, curve.LabelPosition));
             _curveLabelDir.SelectedIndex = Math.Max(0, Math.Min(_curveLabelDir.Items.Count - 1, (int)curve.LabelDirection));
+            _curvePointLabels.Checked = curve.PointLabels != PointLabelMode.None;
+            _curvePointLabelEvery.Value = Math.Max(1, Math.Min(100, curve.PointLabelEvery));
+            _curvePointLabelFormat.SelectedIndex = Math.Max(0, Math.Min(2, (int)curve.PointLabelFormat));
+            _curvePointLabelThreshold.Value = Math.Max(0, Math.Min(15, curve.PointLabelExpThreshold));
+            _curvePointLabelFont.Text = curve.PointLabelFont ?? "";
+            _curvePointLabelHeight.SetValue(curve.PointLabelHeightMm);
             FillCurveAxisList();
             ShowCurveColor(curve);
         }
@@ -1022,6 +1052,12 @@ public sealed partial class MainForm
         curve.LabelText = _curveLabelText.Text;
         curve.LabelPosition = _curveLabelAuto.Checked ? -1 : _curveLabelPos.Value;
         curve.LabelDirection = (LabelDirection)Math.Max(0, _curveLabelDir.SelectedIndex);
+        curve.PointLabels = _curvePointLabels.Checked ? PointLabelMode.Value : PointLabelMode.None;
+        curve.PointLabelEvery = (int)_curvePointLabelEvery.Value;
+        curve.PointLabelFormat = (NumberDisplayFormat)Math.Max(0, Math.Min(2, _curvePointLabelFormat.SelectedIndex));
+        curve.PointLabelExpThreshold = (int)_curvePointLabelThreshold.Value;
+        curve.PointLabelFont = _curvePointLabelFont.Text.Trim();
+        curve.PointLabelHeightMm = _curvePointLabelHeight.Value;
 
         if (renamed)
         {

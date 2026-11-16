@@ -2,6 +2,8 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace Grapher.UI;
@@ -46,16 +48,33 @@ internal sealed class AboutDialog : Form
                 Margin = new Padding(0, 2, 14, 0)
             };
             layout.Controls.Add(picture, 0, 0);
-            layout.SetRowSpan(picture, 4);
+            layout.SetRowSpan(picture, 6);
         }
+
+        Font big = new Font(SystemFonts.MessageBoxFont.FontFamily, SystemFonts.MessageBoxFont.Size * 1.3f, FontStyle.Bold);
+        layout.Controls.Add(new Label
+        {
+            Text = "Grapher",
+            AutoSize = true,
+            Font = big,
+            Margin = new Padding(0, 0, 0, 0)
+        }, 1, 0);
 
         layout.Controls.Add(new Label
         {
-            Text = "Grapher " + version.ToString(3),
+            Text = "Версия " + version.ToString(3),
             AutoSize = true,
-            Font = new Font(SystemFonts.MessageBoxFont.FontFamily, SystemFonts.MessageBoxFont.Size * 1.3f, FontStyle.Bold),
-            Margin = new Padding(0, 0, 0, 6)
-        }, 1, 0);
+            Font = big,
+            Margin = new Padding(0, 0, 0, 2)
+        }, 1, 1);
+
+        layout.Controls.Add(new Label
+        {
+            Text = BuildInfo(),
+            AutoSize = true,
+            ForeColor = SystemColors.GrayText,
+            Margin = new Padding(0, 0, 0, 8)
+        }, 1, 2);
 
         layout.Controls.Add(new Label
         {
@@ -68,24 +87,24 @@ internal sealed class AboutDialog : Form
                 "График рисуется объектами КОМПАС и объединяется в макроэлемент.",
             AutoSize = true,
             Margin = new Padding(0, 0, 0, 10)
-        }, 1, 1);
+        }, 1, 3);
 
         layout.Controls.Add(new Label
         {
             Text = "Исходный код, новые версии и инструкции:",
             AutoSize = true,
             Margin = Padding.Empty
-        }, 1, 2);
+        }, 1, 4);
 
         var link = new LinkLabel { Text = RepositoryUrl, AutoSize = true, Margin = new Padding(0, 2, 0, 0) };
         link.LinkClicked += (s, e) => OpenRepository();
-        layout.Controls.Add(link, 1, 3);
+        layout.Controls.Add(link, 1, 5);
 
         Button ok = Ui.Button("OK");
         ok.DialogResult = DialogResult.OK;
         ok.Anchor = AnchorStyles.Right;
         ok.Margin = new Padding(3, 14, 0, 12);
-        layout.Controls.Add(ok, 0, 4);
+        layout.Controls.Add(ok, 0, 6);
         layout.SetColumnSpan(ok, 2);
 
         Controls.Add(layout);
@@ -93,6 +112,23 @@ internal sealed class AboutDialog : Form
         CancelButton = ok;
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
+    }
+
+    /// <summary>Номер и время сборки: короткий хеш коммита из версии и метка файла.</summary>
+    private static string BuildInfo()
+    {
+        var assembly = typeof(AboutDialog).Assembly;
+        string hash = "";
+        var attribute = (AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(
+            assembly, typeof(AssemblyInformationalVersionAttribute));
+        string informational = attribute?.InformationalVersion ?? "";
+        int plus = informational.IndexOf('+');
+        if (plus >= 0 && plus + 1 < informational.Length)
+        {
+            hash = informational.Substring(plus + 1, Math.Min(7, informational.Length - plus - 1));
+        }
+        string time = File.GetLastWriteTime(assembly.Location).ToString("dd.MM.yyyy HH:mm");
+        return hash.Length > 0 ? "Сборка " + hash + " от " + time : "Сборка от " + time;
     }
 
     private void OpenRepository()

@@ -184,6 +184,7 @@ internal static class PolarBuilder
 
         // 6. Кривые.
         var built = new List<BuiltCurve>();
+        var placedLabels = new List<RectD>();
         foreach (SeriesPoints series in c.Data.Series)
         {
             CurveSettings curve = project.Curves[series.CurveIndex];
@@ -195,7 +196,9 @@ internal static class PolarBuilder
 
             // Точки с радиусом меньше начала шкалы построить нельзя: кривая на них прерывается.
             var runs = new List<List<Pt>>();
+            var runsSource = new List<List<Pt>>();
             var current = new List<Pt>();
+            var currentSource = new List<Pt>();
             bool below = false;
             foreach (Pt p in series.Points)
             {
@@ -203,23 +206,28 @@ internal static class PolarBuilder
                 if (rho < -1e-9)
                 {
                     below = true;
-                    if (current.Count > 0) runs.Add(current);
+                    if (current.Count > 0) { runs.Add(current); runsSource.Add(currentSource); }
                     current = new List<Pt>();
+                    currentSource = new List<Pt>();
                     continue;
                 }
                 double dataDeg = polar.AngleUnit == AngleUnit.Radians ? p.X * 180 / Math.PI : p.X;
                 current.Add(Direction(dataDeg) * Math.Max(0, rho));
+                currentSource.Add(p);
             }
-            if (current.Count > 0) runs.Add(current);
+            if (current.Count > 0) { runs.Add(current); runsSource.Add(currentSource); }
             if (below)
             {
                 c.Warn("Кривая «" + curve.Name + "»: значения радиуса меньше начала шкалы не построены.");
             }
 
             var dataPoints = new List<Pt>();
-            foreach (List<Pt> mapped in runs)
+            var sourcePoints = new List<Pt>();
+            for (int run = 0; run < runs.Count; run++)
             {
+                List<Pt> mapped = runs[run];
                 dataPoints.AddRange(mapped);
+                sourcePoints.AddRange(runsSource[run]);
                 List<Pt> line = CurveTools.Decimate(c, mapped);
                 if (line.Count < 2) continue;
 
@@ -263,6 +271,10 @@ internal static class PolarBuilder
                     }
                 }
             }
+
+            double lift = curve.Marker != MarkerShape.None && curve.MarkerSizeMm > 0 ? curve.MarkerSizeMm / 2 : 0;
+            PointLabels.Place(c, curve, sourcePoints, dataPoints, lift, placedLabels,
+                new RectD(-radius, -radius, radius, radius), Inside);
         }
 
         bool Inside(RectD box)
@@ -376,7 +388,10 @@ internal static class PolarBuilder
         {
             double rho = (value - rMin) * k;
             if (rho <= 1e-6 || rho > radius + 1e-6) continue;
-            texts.Add(NumberFormatter.Format(value, decimals, g.DecimalComma));
+            bool exponential = NumberFormatter.IsExponential(value, radial.NumberFormat, radial.ExpThreshold);
+            texts.Add(exponential
+                ? NumberFormatter.Scientific(value, Math.Max(decimals + 1, 3), g.DecimalComma)
+                : NumberFormatter.Format(value, decimals, g.DecimalComma));
             rhos.Add(rho);
         }
         if (texts.Count == 0) return;

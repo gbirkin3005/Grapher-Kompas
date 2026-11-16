@@ -112,6 +112,7 @@ public static class ProjectSerializer
             project.Curves[i] ??= new CurveSettings();
             project.Curves[i].Name ??= "Y" + (i + 1).ToString(CultureInfo.InvariantCulture);
             project.Curves[i].LabelText ??= "";
+            project.Curves[i].PointLabelFont ??= "";
             // Кривая не может ссылаться на шкалу, которой нет.
             if (project.Curves[i].Axis < 0 || project.Curves[i].Axis > project.ExtraAxes.Count) project.Curves[i].Axis = 0;
         }

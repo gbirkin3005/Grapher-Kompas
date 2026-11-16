@@ -539,7 +539,13 @@ internal static class CartesianBuilder
             }
             else
             {
-                scale.Texts.Add(new TickText(NumberFormatter.Format(value, decimals, g.DecimalComma)));
+                // Экспоненциальная форма (2·10^4) — только для обычных десятичных чисел,
+                // не для долей π; у логарифмической шкалы числа и так степени десяти.
+                bool exponential = NumberFormatter.IsExponential(value, scale.Axis.NumberFormat, scale.Axis.ExpThreshold);
+                string text = exponential
+                    ? NumberFormatter.Scientific(value, Math.Max(decimals + 1, 3), g.DecimalComma)
+                    : NumberFormatter.Format(value, decimals, g.DecimalComma);
+                scale.Texts.Add(new TickText(text));
             }
         }
 
@@ -1195,6 +1201,7 @@ internal static class CartesianBuilder
         GraphSettings g = l.G;
         RectD rect = l.Scene.PlotRect;
         var built = new List<BuiltCurve>();
+        var placedLabels = new List<RectD>();
 
         foreach (SeriesPoints series in c.Data.Series)
         {
@@ -1209,6 +1216,7 @@ internal static class CartesianBuilder
             bool characteristic = curve.MarkerPlacement == MarkerPlacement.Characteristic;
             double zeroLevel = scale.Min <= 0 && scale.Max >= 0 ? scale.Map(0) : double.NaN;
             var dataPoints = new List<Pt>(series.Points.Count);
+            var sourcePoints = new List<Pt>(series.Points.Count);
             var markPoints = new List<Pt>();
 
             List<List<Pt>> runs = CurveTools.SplitAtJumps(series.Points, g.DashedJumps, l.X.Max - l.X.Min);
@@ -1233,6 +1241,7 @@ internal static class CartesianBuilder
                     mapped.Add(new Pt(l.X.Map(p.X), scale.Map(p.Y)));
                 }
                 dataPoints.AddRange(mapped);
+                sourcePoints.AddRange(run);
 
                 if (hasPrevious)
                 {
@@ -1281,32 +1290,39 @@ internal static class CartesianBuilder
                 }
             }
 
-            if (curve.Marker == MarkerShape.None || !(curve.MarkerSizeMm > 0)) continue;
-
-            if (characteristic)
+            bool dataMarkers = curve.Marker != MarkerShape.None && curve.MarkerSizeMm > 0 && !characteristic;
+            if (curve.Marker != MarkerShape.None && curve.MarkerSizeMm > 0)
             {
-                var placed = new List<Pt>();
-                foreach (Pt p in markPoints)
+                if (characteristic)
                 {
-                    if (!rect.Contains(p, 1e-9)) continue;
-                    bool duplicate = false;
-                    foreach (Pt other in placed) duplicate |= Pt.Distance(other, p) < 0.3;
-                    if (duplicate) continue;
-                    placed.Add(p);
-                    SceneTools.Marker(l.Scene, curve.Marker, p, curve.MarkerSizeMm, PrimitiveRole.Marker, color);
-                }
-            }
-            else
-            {
-                int every = Math.Max(1, curve.MarkerEvery);
-                for (int i = 0; i < dataPoints.Count; i += every)
-                {
-                    if (rect.Contains(dataPoints[i], 1e-9))
+                    var placed = new List<Pt>();
+                    foreach (Pt p in markPoints)
                     {
-                        SceneTools.Marker(l.Scene, curve.Marker, dataPoints[i], curve.MarkerSizeMm, PrimitiveRole.Marker, color);
+                        if (!rect.Contains(p, 1e-9)) continue;
+                        bool duplicate = false;
+                        foreach (Pt other in placed) duplicate |= Pt.Distance(other, p) < 0.3;
+                        if (duplicate) continue;
+                        placed.Add(p);
+                        SceneTools.Marker(l.Scene, curve.Marker, p, curve.MarkerSizeMm, PrimitiveRole.Marker, color);
+                    }
+                }
+                else
+                {
+                    int every = Math.Max(1, curve.MarkerEvery);
+                    for (int i = 0; i < dataPoints.Count; i += every)
+                    {
+                        if (rect.Contains(dataPoints[i], 1e-9))
+                        {
+                            SceneTools.Marker(l.Scene, curve.Marker, dataPoints[i], curve.MarkerSizeMm, PrimitiveRole.Marker, color);
+                        }
                     }
                 }
             }
+
+            // Подписи значений ставятся у тех же точек таблицы, даже если маркеры выключены.
+            double lift = dataMarkers ? curve.MarkerSizeMm / 2 : 0;
+            PointLabels.Place(c, curve, sourcePoints, dataPoints, lift, placedLabels, rect,
+                box => rect.Contains(new Pt(box.XMin, box.YMin)) && rect.Contains(new Pt(box.XMax, box.YMax)));
         }
         return built;
     }

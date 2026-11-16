@@ -103,6 +103,10 @@ internal static class Program
 
     private static int SilentInstall(Arguments a)
     {
+        if (!Product.HasDotNet48())
+        {
+            return Fail(a, "Нужен .NET Framework 4.8: " + Product.DotNetDownloadUrl, 1);
+        }
         var options = new InstallOptions
         {
             AllUsers = a.AllUsers,

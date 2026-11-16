@@ -38,7 +38,7 @@ internal sealed class WizardForm : Form
     private Panel _content;
 
     // «Добро пожаловать»
-    private Label _welcomeText, _kompasStatus;
+    private Label _welcomeText, _kompasStatus, _dotnetStatus;
     private GroupBox _existingGroup;
     private Label _existingText;
     private RadioButton _modeUpdate, _modeRemove;
@@ -229,8 +229,9 @@ internal sealed class WizardForm : Form
             "Мастер установит программу Grapher " + Product.Version + " — построение графиков и диаграмм по точкам " +
             "в чертежах и фрагментах КОМПАС-3D: в прямоугольных и полярных координатах, треугольных, " +
             "с оформлением по Р 50-77-88.\n\n" +
-            "Нужны Windows 10 или 11 (64-разрядная) и КОМПАС-3D. Grapher встраивается в меню «Приложения» КОМПАС " +
-            "и работает как отдельная программа.");
+            "Нужны Windows 10 или 11 (64-разрядная), КОМПАС-3D и .NET Framework 4.8 " +
+            "(в Windows 10 начиная с версии 1903 и в Windows 11 он уже есть). Grapher встраивается в меню " +
+            "«Приложения» КОМПАС и работает как отдельная программа.");
         Add(page, _welcomeText);
 
         var link = new LinkLabel { Text = Product.RepositoryUrl, AutoSize = true, Font = SystemFonts.MessageBoxFont, Margin = new Padding(0, 4, 0, 6) };
@@ -244,6 +245,10 @@ internal sealed class WizardForm : Form
 
         _kompasStatus = Paragraph("");
         Add(page, _kompasStatus);
+
+        _dotnetStatus = Paragraph("");
+        _dotnetStatus.ForeColor = Color.FromArgb(192, 0, 0);
+        Add(page, _dotnetStatus);
 
         _existingText = Paragraph("");
         _modeUpdate = Radio("Обновить");
@@ -371,6 +376,14 @@ internal sealed class WizardForm : Form
         _kompasStatus.Text = kompas
             ? "КОМПАС-3D на этом компьютере найден."
             : "КОМПАС-3D на этом компьютере не найден. Grapher можно установить, но строить графики он сможет только после установки КОМПАС-3D.";
+
+        // Без .NET Framework 4.8 Grapher не запустится: предупреждаем и не даём продолжить установку.
+        bool dotNet = Product.HasDotNet48();
+        _dotnetStatus.Text = dotNet ? "" :
+            "Внимание: .NET Framework 4.8 на этом компьютере не найден, а без него Grapher не работает. " +
+            "В Windows 10 (начиная с версии 1903) и Windows 11 он уже есть; для более старых систем " +
+            "скачайте его: " + Product.DotNetDownloadUrl;
+        _dotnetStatus.Visible = !dotNet;
 
         if (_existing != null)
         {
@@ -602,6 +615,15 @@ internal sealed class WizardForm : Form
                     SwitchToUninstall();
                     return;
                 }
+                if (!Product.HasDotNet48())
+                {
+                    DialogResult download = MessageBox.Show(this,
+                        "Для работы Grapher нужен .NET Framework 4.8, а на этом компьютере он не установлен " +
+                        "(или установлена более ранняя версия).\n\nОткрыть страницу загрузки .NET Framework 4.8?",
+                        Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                    if (download == DialogResult.Yes) OpenUrl(Product.DotNetDownloadUrl);
+                    return;
+                }
                 ShowPage(Page.Options);
                 break;
 
@@ -783,10 +805,10 @@ internal sealed class WizardForm : Form
     private void RunElevated(List<string> childArguments, Action<Action<string>> userPart, bool uninstall)
     {
         string logFile = Path.Combine(Path.GetTempPath(), "GrapherSetup-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".log");
-        childArguments.Add("/log=" + logFile);
+        var args = new List<string>(childArguments) { "/log=" + logFile };
 
-        Process child = Elevation.Start(Arguments.Join(childArguments));
-        if (child == null)
+        IntPtr child = Elevation.Start(Arguments.Join(args));
+        if (child == IntPtr.Zero)
         {
             MessageBox.Show(this,
                 (uninstall ? "Удаление установки для всех пользователей" : "Установка для всех пользователей") +
@@ -799,9 +821,7 @@ internal sealed class WizardForm : Form
         RunWork(log =>
         {
             log("Работа выполняется с правами администратора…");
-            child.WaitForExit();
-            int code = child.ExitCode;
-            child.Dispose();
+            int code = Elevation.WaitForExit(child);
             if (File.Exists(logFile))
             {
                 foreach (string line in File.ReadAllLines(logFile, Encoding.UTF8)) log(line);
@@ -812,10 +832,10 @@ internal sealed class WizardForm : Form
             SetProgress(0.95);
             userPart?.Invoke(log);
             SetProgress(1);
-        }, uninstall, marquee: true);
+        }, uninstall, marquee: true, retry: () => RunElevated(childArguments, userPart, uninstall));
     }
 
-    private void RunWork(Action<Action<string>> work, bool uninstall, bool marquee = false)
+    private void RunWork(Action<Action<string>> work, bool uninstall, bool marquee = false, Action retry = null)
     {
         _log.Clear();
         _progressBar.Style = marquee ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous;
@@ -840,7 +860,7 @@ internal sealed class WizardForm : Form
             {
                 failure = ex;
             }
-            BeginInvoke((Action)(() => WorkFinished(failure, uninstall, () => RunWork(work, uninstall, marquee))));
+            BeginInvoke((Action)(() => WorkFinished(failure, uninstall, retry ?? (() => RunWork(work, uninstall, marquee)))));
         });
     }
 

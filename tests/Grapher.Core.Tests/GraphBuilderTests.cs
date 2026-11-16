@@ -5,6 +5,7 @@ using System.Linq;
 using Grapher.Core.Build;
 using Grapher.Core.Geometry;
 using Grapher.Core.Model;
+using Grapher.Core.Numerics;
 using Grapher.Core.Parsing;
 using Grapher.Core.Scene;
 using Xunit;
@@ -581,6 +582,293 @@ public class GraphBuilderTests
         List<CirclePrimitive> markers = Of<CirclePrimitive>(result, PrimitiveRole.Marker);
         Assert.Equal(50, markers.Count);      // точки с x ≤ 50: i = 0…49
         Assert.All(markers, m => Assert.Equal(1, m.Radius));
+    }
+
+    // ---------------------------------------------------------------- подписи значений у точек
+
+    [Fact]
+    public void Point_labels_are_off_by_default()
+    {
+        BuildResult result = GraphBuilder.Build(SampleData.SqrtProject());
+
+        Assert.Empty(Of<TextPrimitive>(result, PrimitiveRole.PointLabel));
+    }
+
+    [Fact]
+    public void Point_labels_show_values_above_the_points()
+    {
+        var project = new GraphProject();
+        project.Data.Rows.Add(new[] { "0", "1.875" });
+        project.Data.Rows.Add(new[] { "0.5", "1.375" });
+        project.Data.Rows.Add(new[] { "1", "0.5" });
+        project.Curves.Add(new CurveSettings { Name = "K", Mode = CurveMode.Polyline, PointLabels = PointLabelMode.Value });
+        project.XAxis.AutoLimits = false;
+        project.XAxis.Min = -0.5;
+        project.XAxis.Max = 1.5;
+        project.YAxis.AutoLimits = false;
+        project.YAxis.Min = 0;
+        project.YAxis.Max = 2.5;
+
+        BuildResult result = GraphBuilder.Build(project);
+
+        List<TextPrimitive> labels = Of<TextPrimitive>(result, PrimitiveRole.PointLabel);
+        Assert.Equal(new[] { "1,875", "1,375", "0,5" }, labels.Select(t => t.Text).ToArray());
+        Assert.All(labels, l => Assert.Equal(TextAlign.Center, l.Align));
+
+        // Точки: (0; 1,875) → (25; 75), (0,5; 1,375) → (50; 55), (1; 0,5) → (75; 20); подпись — над точкой.
+        Close.Equal(25, labels[0].Anchor.X);
+        Close.Equal(50, labels[1].Anchor.X);
+        Close.Equal(75, labels[2].Anchor.X);
+        Assert.True(labels[0].Anchor.Y > 75 && labels[1].Anchor.Y > 55 && labels[2].Anchor.Y > 20);
+    }
+
+    [Fact]
+    public void Point_label_takes_marker_size_into_account()
+    {
+        var project = new GraphProject();
+        project.Data.Rows.Add(new[] { "0", "1" });
+        project.Curves.Add(new CurveSettings
+        {
+            Name = "Y", Mode = CurveMode.Polyline, PointLabels = PointLabelMode.Value,
+            Marker = MarkerShape.Circle, MarkerSizeMm = 2
+        });
+        project.Graph.WidthMm = 100;
+        project.Graph.HeightMm = 100;
+
+        BuildResult withMarker = GraphBuilder.Build(project);
+        project.Curves[0].Marker = MarkerShape.None;
+        BuildResult withoutMarker = GraphBuilder.Build(project);
+
+        double marked = Assert.Single(Of<TextPrimitive>(withMarker, PrimitiveRole.PointLabel)).Anchor.Y;
+        double plain = Assert.Single(Of<TextPrimitive>(withoutMarker, PrimitiveRole.PointLabel)).Anchor.Y;
+        Close.Equal(1, marked - plain);      // радиус маркера 1 мм
+    }
+
+    [Fact]
+    public void Point_labels_respect_every_n()
+    {
+        GraphProject project = LineProject(x => x, 1, 9, 9);
+        project.XAxis.AutoLimits = false;
+        project.XAxis.Min = 0;
+        project.XAxis.Max = 10;
+        project.YAxis.AutoLimits = false;
+        project.YAxis.Min = 0;
+        project.YAxis.Max = 10;
+        project.Curves[0].PointLabels = PointLabelMode.Value;
+        project.Curves[0].PointLabelEvery = 2;
+
+        BuildResult result = GraphBuilder.Build(project);
+
+        List<TextPrimitive> labels = Of<TextPrimitive>(result, PrimitiveRole.PointLabel);
+        Assert.Equal(new[] { "1", "3", "5", "7", "9" }, labels.Select(t => t.Text).ToArray());
+    }
+
+    [Fact]
+    public void Point_labels_that_do_not_fit_on_the_field_are_skipped()
+    {
+        // Точка у верхней стороны поля: крупная подпись прижимается к рамке, а не пропускается.
+        var top = new GraphProject();
+        top.Data.Rows.Add(new[] { "1", "2" });
+        top.Curves.Add(new CurveSettings
+        {
+            Name = "Y", Mode = CurveMode.Polyline, PointLabels = PointLabelMode.Value, PointLabelHeightMm = 5
+        });
+        top.XAxis.AutoLimits = false; top.XAxis.Min = 0; top.XAxis.Max = 2;
+        top.YAxis.AutoLimits = false; top.YAxis.Min = 0; top.YAxis.Max = 2;
+
+        TextPrimitive topLabel = Assert.Single(Of<TextPrimitive>(GraphBuilder.Build(top), PrimitiveRole.PointLabel));
+        RectD topBox = TextMetrics.ClearedBox(topLabel.Text, topLabel.HeightMm, topLabel.Anchor, topLabel.Align);
+        Assert.True(topBox.YMax <= 100 + 1e-9 && topBox.YMin >= -1e-9);
+
+        // Тесные точки (шаг 2,5 мм): подписи не должны перекрывать друг друга — лишние пропускаются.
+        GraphProject dense = LineProject(x => 5, 0, 10, 41);
+        dense.Curves[0].PointLabels = PointLabelMode.Value;
+        dense.Curves[0].PointLabelEvery = 1;
+
+        BuildResult denseResult = GraphBuilder.Build(dense);
+        List<TextPrimitive> denseLabels = Of<TextPrimitive>(denseResult, PrimitiveRole.PointLabel);
+        Assert.Equal(20, denseLabels.Count);
+        for (int i = 0; i < denseLabels.Count; i++)
+        for (int j = i + 1; j < denseLabels.Count; j++)
+        {
+            RectD a = TextMetrics.ClearedBox(denseLabels[i].Text, denseLabels[i].HeightMm, denseLabels[i].Anchor, denseLabels[i].Align);
+            RectD b = TextMetrics.ClearedBox(denseLabels[j].Text, denseLabels[j].HeightMm, denseLabels[j].Anchor, denseLabels[j].Align);
+            Assert.False(a.XMin < b.XMax && b.XMin < a.XMax && a.YMin < b.YMax && b.YMin < a.YMax,
+                $"Подписи {i} и {j} перекрываются");
+        }
+    }
+
+    [Theory]
+    [InlineData(true, "1,875")]
+    [InlineData(false, "1.875")]
+    public void Point_labels_use_configured_decimal_separator(bool comma, string expected)
+    {
+        var project = new GraphProject();
+        project.Data.Rows.Add(new[] { "0", "1.875" });
+        project.Curves.Add(new CurveSettings { Name = "Y", Mode = CurveMode.Polyline, PointLabels = PointLabelMode.Value });
+        project.Graph.DecimalComma = comma;
+
+        BuildResult result = GraphBuilder.Build(project);
+
+        Assert.Equal(expected, Assert.Single(Of<TextPrimitive>(result, PrimitiveRole.PointLabel)).Text);
+    }
+
+    [Fact]
+    public void Polar_diagram_labels_point_values()
+    {
+        GraphProject project = LineProject(x => 50 + 20 * Math.Cos(x * Math.PI / 180), 0, 180, 19);
+        project.Graph.Kind = DiagramKind.Polar;
+        project.YAxis.AutoLimits = false;
+        project.YAxis.Min = 0;
+        project.YAxis.Max = 100;
+        project.Curves[0].PointLabels = PointLabelMode.Value;
+        project.Curves[0].PointLabelEvery = 8;
+
+        BuildResult result = GraphBuilder.Build(project);
+
+        List<TextPrimitive> labels = Of<TextPrimitive>(result, PrimitiveRole.PointLabel);
+        Assert.Equal(3, labels.Count);
+        Assert.All(labels, l => Assert.Equal(TextAlign.Center, l.Align));
+    }
+
+    [Theory]
+    [InlineData(2000000, "2·10^6")]
+    [InlineData(2345678, "2,346·10^6")]
+    [InlineData(0.0000234, "2,34·10^-5")]
+    [InlineData(-1500, "-1,5·10^3")]
+    [InlineData(9999.6, "1·10^4")]       // округление мантиссы до 10 переносит порядок
+    [InlineData(0, "0")]
+    [InlineData(7.5, "7,5·10^0")]       // научный формат пишет и нулевой порядок
+    public void Scientific_format_writes_mantissa_and_exponent(double value, string expected)
+    {
+        Assert.Equal(expected, NumberFormatter.Scientific(value, 4, true));
+        Assert.Equal(expected.Replace(',', '.'), NumberFormatter.Scientific(value, 4, false));
+    }
+
+    [Fact]
+    public void Point_labels_use_scientific_format_when_chosen()
+    {
+        var project = new GraphProject();
+        project.Data.Rows.Add(new[] { "0", "2000000" });
+        project.Data.Rows.Add(new[] { "1", "0.0000234" });
+        project.Curves.Add(new CurveSettings
+        {
+            Name = "Y", Mode = CurveMode.Polyline, PointLabels = PointLabelMode.Value,
+            PointLabelFormat = NumberDisplayFormat.Scientific
+        });
+        project.XAxis.AutoLimits = false;
+        project.XAxis.Min = -1;
+        project.XAxis.Max = 3;
+        project.YAxis.AutoLimits = false;
+        project.YAxis.Min = 0;
+        project.YAxis.Max = 4000000;
+
+        BuildResult result = GraphBuilder.Build(project);
+
+        List<TextPrimitive> labels = Of<TextPrimitive>(result, PrimitiveRole.PointLabel);
+        Assert.Equal(new[] { "2·10^6", "2,34·10^-5" }, labels.Select(t => t.Text).ToArray());
+    }
+
+    [Fact]
+    public void Point_labels_switch_to_exponential_by_threshold()
+    {
+        var project = new GraphProject();
+        project.Data.Rows.Add(new[] { "0", "1500" });
+        project.Data.Rows.Add(new[] { "1", "20000" });
+        project.Curves.Add(new CurveSettings { Name = "Y", Mode = CurveMode.Polyline, PointLabels = PointLabelMode.Value });
+        project.XAxis.AutoLimits = false;
+        project.XAxis.Min = -1;
+        project.XAxis.Max = 3;
+        project.YAxis.AutoLimits = false;
+        project.YAxis.Min = 0;
+        project.YAxis.Max = 40000;
+
+        // Порог по умолчанию 3: 1500 (порядок 3) — обычный вид, 20000 (порядок 4) — степень.
+        List<TextPrimitive> labels = Of<TextPrimitive>(GraphBuilder.Build(project), PrimitiveRole.PointLabel);
+        Assert.Equal(new[] { "1500", "2·10^4" }, labels.Select(t => t.Text).ToArray());
+
+        // Пользовательский порог 4: 20000 (порядок 4) остаётся обычным.
+        project.Curves[0].PointLabelExpThreshold = 4;
+        labels = Of<TextPrimitive>(GraphBuilder.Build(project), PrimitiveRole.PointLabel);
+        Assert.Equal(new[] { "1500", "20000" }, labels.Select(t => t.Text).ToArray());
+    }
+
+    [Fact]
+    public void Point_labels_are_kept_inside_the_field_at_the_edges()
+    {
+        // Крайние точки у боковых сторон поля: подпись прижимается к рамке, а не пропускается.
+        var project = new GraphProject();
+        project.Data.Rows.Add(new[] { "0", "5" });
+        project.Data.Rows.Add(new[] { "5", "5" });
+        project.Data.Rows.Add(new[] { "10", "5" });
+        project.Curves.Add(new CurveSettings { Name = "Y", Mode = CurveMode.Polyline, PointLabels = PointLabelMode.Value });
+        project.XAxis.AutoLimits = false;
+        project.XAxis.Min = 0;
+        project.XAxis.Max = 10;
+        project.YAxis.AutoLimits = false;
+        project.YAxis.Min = 0;
+        project.YAxis.Max = 10;
+
+        List<TextPrimitive> labels = Of<TextPrimitive>(GraphBuilder.Build(project), PrimitiveRole.PointLabel);
+
+        Assert.Equal(3, labels.Count);
+        Assert.All(labels, l => Assert.True(l.Anchor.X >= 0 && l.Anchor.X <= 100));
+    }
+
+    [Fact]
+    public void Point_labels_use_their_own_font_and_height()
+    {
+        var project = new GraphProject();
+        project.Data.Rows.Add(new[] { "0", "5" });
+        project.Curves.Add(new CurveSettings
+        {
+            Name = "Y", Mode = CurveMode.Polyline, PointLabels = PointLabelMode.Value,
+            PointLabelFont = "GOST Type BU", PointLabelHeightMm = 5
+        });
+        project.XAxis.AutoLimits = false;
+        project.XAxis.Min = -1;
+        project.XAxis.Max = 1;
+        project.YAxis.AutoLimits = false;
+        project.YAxis.Min = 0;
+        project.YAxis.Max = 10;
+
+        TextPrimitive label = Assert.Single(Of<TextPrimitive>(GraphBuilder.Build(project), PrimitiveRole.PointLabel));
+        Close.Equal(5, label.HeightMm);
+        Assert.Equal("GOST Type BU", label.FontName);
+
+        // Без своих настроек подпись берёт шрифт и высоту чисел шкал.
+        project.Curves[0].PointLabelFont = "";
+        project.Curves[0].PointLabelHeightMm = 0;
+        label = Assert.Single(Of<TextPrimitive>(GraphBuilder.Build(project), PrimitiveRole.PointLabel));
+        Close.Equal(3.5, label.HeightMm);
+        Assert.Equal(DrawingFonts.Default, label.FontName);
+    }
+
+    [Fact]
+    public void Axis_numbers_use_exponential_form_by_threshold()
+    {
+        var project = new GraphProject();
+        project.Data.Rows.Add(new[] { "0", "0" });
+        project.Data.Rows.Add(new[] { "20000", "10" });
+        project.Curves.Add(new CurveSettings { Name = "Y", Mode = CurveMode.Polyline });
+        project.XAxis.AutoLimits = false;
+        project.XAxis.Min = 0;
+        project.XAxis.Max = 20000;
+
+        // Числа под осью X: порядок 3 (4000) — обычный вид, порядок 4 и больше — степень.
+        List<string> texts = Of<TextPrimitive>(GraphBuilder.Build(project), PrimitiveRole.TickLabel)
+            .Where(t => t.Anchor.Y < 0).Select(t => t.Text).ToList();
+        Assert.Contains("4000", texts);
+        Assert.Contains("1,2·10^4", texts);
+        Assert.Contains("1,6·10^4", texts);
+        Assert.DoesNotContain("12000", texts);
+
+        // Десятичный формат — всегда обычный вид.
+        project.XAxis.NumberFormat = NumberDisplayFormat.Decimal;
+        texts = Of<TextPrimitive>(GraphBuilder.Build(project), PrimitiveRole.TickLabel)
+            .Where(t => t.Anchor.Y < 0).Select(t => t.Text).ToList();
+        Assert.Contains("12000", texts);
+        Assert.DoesNotContain("1,2·10^4", texts);
     }
 
     // ---------------------------------------------------------------- прореживание

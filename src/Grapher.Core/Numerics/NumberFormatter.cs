@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Grapher.Core.Model;
 
 namespace Grapher.Core.Numerics;
 
@@ -87,5 +88,49 @@ public static class NumberFormatter
         double rounded = Math.Round(value, maxDecimals);
         if (rounded == 0) rounded = 0;
         return rounded.ToString("0." + new string('#', maxDecimals), CultureInfo.CurrentCulture);
+    }
+
+    /// <summary>
+    /// Нужно ли число записывать в экспоненциальной форме.
+    /// Научный формат — всегда; общий (авто) — когда порядок числа (показатель степени
+    /// в записи вида 2·10^6) по модулю больше порога, как «Экспоненциальный 3» в Mathcad.
+    /// Десятичный формат и ноль — никогда.
+    /// </summary>
+    public static bool IsExponential(double value, NumberDisplayFormat format, int expThreshold)
+    {
+        if (format == NumberDisplayFormat.Scientific) return true;
+        if (format != NumberDisplayFormat.Auto) return false;
+        if (value == 0 || double.IsNaN(value) || double.IsInfinity(value)) return false;
+        int order = (int)Math.Floor(Math.Log10(Math.Abs(value)));
+        return order > expThreshold || order < -expThreshold;
+    }
+
+    /// <summary>
+    /// Научная запись «мантисса·10^порядок» в записи <see cref="Scene.TextMarkup"/> (степень — верхним индексом).
+    /// Мантисса — с заданным числом значащих цифр, без лишних нулей; порядок — целое число («2·10^6», «1,5·10^-4»).
+    /// Знак умножения — средняя точка из старых шрифтов ГОСТ 2.304.
+    /// </summary>
+    /// <param name="digits">Число значащих цифр мантиссы (1…15).</param>
+    public static string Scientific(double value, int digits, bool decimalComma)
+    {
+        if (value == 0 || double.IsNaN(value) || double.IsInfinity(value)) return "0";
+        if (digits < 1) digits = 1;
+        if (digits > 15) digits = 15;
+
+        int exponent = (int)Math.Floor(Math.Log10(Math.Abs(value)));
+        double mantissa = value / NiceScale.Pow10(exponent);
+
+        // Округление мантиссы до значащих цифр может выйти за пределы 1…10: 9,9996·10^3 → 10·10^3 → 1·10^4.
+        double quantum = NiceScale.Pow10(-(digits - 1));
+        mantissa = Math.Round(mantissa / quantum, MidpointRounding.AwayFromZero) * quantum;
+        if (Math.Abs(mantissa) >= 10)
+        {
+            mantissa /= 10;
+            exponent++;
+        }
+
+        string m = mantissa.ToString("0." + new string('#', digits - 1), CultureInfo.InvariantCulture);
+        if (decimalComma) m = m.Replace('.', ',');
+        return m + "·10^" + exponent.ToString(CultureInfo.InvariantCulture);
     }
 }
