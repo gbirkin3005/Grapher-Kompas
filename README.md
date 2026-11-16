@@ -137,7 +137,7 @@ Interop-сборки КОМПАС (`KompasAPI7.dll`, `Kompas6API5.dll`, `Kompas6
 | `Grapher.App` | Исполняемый файл `Grapher.exe`. |
 | `Grapher.KompasLibrary` | Обёртка-библиотека для запуска из меню КОМПАС. |
 | `Grapher.Setup` | Мастер установки и удаления (WinForms): файлы, регистрация библиотеки, ярлыки, подключение к КОМПАС, запись в списке приложений Windows. |
-| `Grapher.Core.Tests` | 334 теста ядра (xUnit). |
+| `Grapher.Core.Tests` | 352 теста ядра (xUnit.net v3). |
 
 Используется API КОМПАС версии 7 (`IDrawingContainer`, `ILineSegment`, `IPolyLine2D`, `IBezier`,
 `IDrawingText`, `IMacroObject`, `IStyles`). API версии 5 нужен только для запроса точки
@@ -150,7 +150,7 @@ Interop-сборки КОМПАС (`KompasAPI7.dll`, `Kompas6API5.dll`, `Kompas6
 с оригиналом, и смена её цвета перекрашивает сам системный стиль (проверено на v25).
 
 Сторонние библиотеки: ExcelDataReader 3.7.0 (MIT), Newtonsoft.Json 13.0.3 (MIT) — тексты
-лицензий в `THIRD-PARTY-NOTICES.txt`; для тестов — xUnit (Apache-2.0).
+лицензий в `THIRD-PARTY-NOTICES.txt`; для тестов — xUnit.net v3 (Apache-2.0).
 
 ## Что проверено
 

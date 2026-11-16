@@ -293,7 +293,7 @@ public sealed class DataTableView : DataGridView
         string text = GetClipboardText();
         if (string.IsNullOrWhiteSpace(text))
         {
-            MessageBox.Show(FindForm(), "В буфере обмена нет текста. Скопируйте таблицу в Mathcad или Excel и повторите вставку.",
+            MessageBox.Show(FindForm(), "В буфере обмена нет текста. Скопируйте таблицу из Mathcad или Excel и повторите вставку.",
                 "Вставка из буфера обмена", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }

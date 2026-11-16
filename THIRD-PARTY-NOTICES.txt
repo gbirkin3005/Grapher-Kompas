@@ -1,7 +1,7 @@
 Grapher использует сторонние библиотеки. Ниже приведены их лицензии.
 
 ================================================================================
-ExcelDataReader 3.7.0
+ExcelDataReader 3.9.0
 https://github.com/ExcelDataReader/ExcelDataReader
 ================================================================================
 
@@ -28,7 +28,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-Newtonsoft.Json 13.0.3
+Newtonsoft.Json 13.0.4
 https://github.com/JamesNK/Newtonsoft.Json
 ================================================================================
 
